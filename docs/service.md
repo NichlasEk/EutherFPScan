@@ -242,3 +242,44 @@ den tidigare lyckade bildinsamlingen; detta är en ny kompatibilitetsåtgärd.
 
 Referenser: [Pythons restore_signals](https://docs.python.org/3/library/subprocess.html#subprocess.Popen),
 [Linux signalhantering](https://man7.org/linux/man-pages/man7/signal.7.html).
+
+## Avgränsad IPC-spårning efter kvarstående timeout
+
+Kl. 09:59 var daemonen fortfarande levande när capture fick timeout.
+SIGPIPE-åtgärden hindrade processdöden men gav ännu ingen bild. Nästa test
+spårar IPC-systemanrop från daemonen, dess trådar och capture-hjälparen:
+
+```sh
+sudo python3 tools/diagnose_ipc.py "$USER"
+```
+
+Skriptet gör en omstart, ansluter strace till enbart daemonen och den inre
+supervisorn och kör guiden. Tidsgränsen är fyra minuter och spårningen
+begränsas till 10 000 systemanrop. Läs-/skriv-, meddelande- och ioctl-buffertar
+visas som råa pekare, aldrig avkodade byte. Inga generella exec-argument eller
+USB-payloads dumpas. Öppnade sökvägar, filbeskrivare, anropsnummer och returkoder
+är synliga. Spårning kan påverka timing; ett lyckat spårat test måste följas
+av verifiering utan spårning.
+
+Rapporterna sparas under `private/ipc-*` (katalog `0700`, filer `0600`) och
+överlämnas till sudo-användaren för lokal granskning. De är Git-ignorerade.
+Strace kopplas loss efteråt; skriptet ändrar ingen permanent tjänstekonfiguration.
+Ingen ytterligare omstart eller nytt försök görs automatiskt.
+
+På denna arbetsstation är Debian strace 6.13+ds-1 redan uppackad under
+`build/strace-sdk/root`, utan systeminstallation. Vid ny checkout förbereds den så här:
+
+```sh
+mkdir -p build/strace-sdk
+cd build/strace-sdk
+apt-get download strace=6.13+ds-1
+dpkg-deb -x strace_6.13+ds-1_amd64.deb root
+cd ../..
+python3 tools/diagnose_ipc.py --self-test
+```
+
+Skriptet verifierar den körbara filens SHA-256 före omstart. Självtestet
+använder syntetiska bytes och en bruten pipe: det kräver synligt EPIPE och
+att testpayloaden saknas i spåret. Full anslutning till root-tjänsten återstår
+att verifiera med användarens sudo-session. Referens:
+[straces raw- och attach-alternativ](https://man7.org/linux/man-pages/man1/strace.1.html).
