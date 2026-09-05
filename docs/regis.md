@@ -59,7 +59,7 @@ Inga riktiga avtryck ändras av testerna.
 
 2026-09-05: tio GUI/backend-tester och 26 befintliga tester passerade.
 Den nya klienten läste även utvecklingsdatorns verkliga register och hittade
-`right-index-finger` för `nichlase`. Registrering och radering via GUI på
+`right-index-finger` för den lokala användaren. Registrering och radering via GUI på
 den verkliga läsaren återstår att prova; tidigare CLI-registrering,
 verifiering och sudo-autentisering är bekräftade.
 

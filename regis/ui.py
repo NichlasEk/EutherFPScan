@@ -336,7 +336,7 @@ class App(Gtk.Application):
         Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         registry = Registry()
         if self.preview_path:
-            registry.users = [dict(name='nichlase', label='Nichlas', uid=1000, fingers=['right-index-finger'], error=None),
+            registry.users = [dict(name='test-user', label='Exempelanvändare', uid=1000, fingers=['right-index-finger'], error=None),
                               dict(name='root', label='Administratör', uid=0, fingers=None, error=None)]
             registry.device = object()
             registry.message = 'Dina avtryck stannar i datorns skyddade register.'
