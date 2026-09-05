@@ -26,7 +26,7 @@ READY = Path("/tmp/vcsSemKey_ServiceReady")
 SYSLOG = Path("/dev/log")
 
 
-def daemon_pids(proc=Path("/proc")):
+def daemon_pids(proc=Path("/proc"), parent_pid=None):
     """Find live vendor processes in this sandbox, excluding zombies."""
     found = []
     for entry in proc.iterdir():
@@ -35,7 +35,10 @@ def daemon_pids(proc=Path("/proc")):
         try:
             if entry.joinpath("comm").read_text().strip() != "vcsFPService":
                 continue
-            state = entry.joinpath("stat").read_text().rsplit(") ", 1)[1].split()[0]
+            fields = entry.joinpath("stat").read_text().rsplit(") ", 1)[1].split()
+            state = fields[0]
+            if parent_pid is not None and int(fields[1]) != parent_pid:
+                continue
             if state not in ("Z", "X"):
                 found.append(int(entry.name))
         except (FileNotFoundError, ProcessLookupError):
@@ -66,10 +69,10 @@ def start_vendor_daemon(command):
 class DaemonMonitor:
     def __init__(self, parent):
         self.parent = parent
-        self.pids = set(daemon_pids())
+        self.pids = set(daemon_pids(parent_pid=os.getpid()))
 
     def check(self):
-        live = daemon_pids()
+        live = set(daemon_pids()) & self.pids
         for pid in list(self.pids):
             if pid == self.parent.pid:
                 code = self.parent.poll()

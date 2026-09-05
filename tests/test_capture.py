@@ -52,6 +52,18 @@ class CaptureTests(unittest.TestCase):
                             "tests/mock_wrapper.c", "-o", lib], check=True)
             command = ["build/euther-capture", "--capture", lib]
             self.assertEqual(collect(command), (2, 2, b"abcd"))
+            # Verify actual ELF interposition, not only the shim in isolation.
+            baseline = str(Path(directory) / "unpatched-helper")
+            subprocess.run(["cc", "-Wall", "-Wextra", "-Werror", "src/capture.c",
+                            "-o", baseline, "-ldl"], check=True)
+            for mode in ("split", "interrupt"):
+                with self.subTest(pipe=mode), patch.dict(os.environ, {"MOCK_PIPE": mode}):
+                    with self.assertRaises(RuntimeError):
+                        collect([baseline, "--capture", lib], timeout=3)
+                    self.assertEqual(collect(command, timeout=3), (2, 2, b"abcd"))
+            with patch.dict(os.environ, {"MOCK_PIPE": "eof"}):
+                with self.assertRaises(RuntimeError):
+                    collect(command, timeout=3)
             with patch.dict(os.environ, {"MOCK_BAD": "1"}):
                 with self.assertRaisesRegex(RuntimeError, "Invalid image metadata"):
                     collect(command)

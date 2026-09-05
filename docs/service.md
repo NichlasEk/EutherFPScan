@@ -283,3 +283,35 @@ använder syntetiska bytes och en bruten pipe: det kräver synligt EPIPE och
 att testpayloaden saknas i spåret. Full anslutning till root-tjänsten återstår
 att verifiera med användarens sudo-session. Referens:
 [straces raw- och attach-alternativ](https://man7.org/linux/man-pages/man1/strace.1.html).
+
+## Kort FIFO-läsning identifierad i IPC-spåret
+
+Spåret från kl. 10:04 visar att hjälparens eventtråd begärde 70 759 byte från
+`CH_EVENT` men fick 65 496 byte i första läsningen. Den stängde då FIFO:n.
+Daemonens fortsatta skrivning följdes av SIGPIPE, och hjälparen började
+öppna/stänga kanalen och läsa fragment som nya meddelanden. Spårgränsen
+10 000 systemanrop nåddes senare, men den första desynkroniseringen finns med.
+
+Statisk kontroll av HP-bibliotekets `palPipeRead` visar exakt ett `read()`:
+om antalet byte avviker från det begärda returneras felkod 40. En kort
+läsning från en pipe är dock tillåten enligt [read(2)](https://man7.org/linux/man-pages/man2/read.2.html).
+
+`src/vfs_pipe.c` ersätter därför bara `palPipeRead` genom en exporterad symbol
+i `euther-capture`. Wrapperns interna anrop går via dess PLT och binds till
+hjälparens implementation. Libc, USB-läsningar och daemonens skrivkod ändras
+inte. Funktionen samlar hela meddelandet, återupptar EINTR och avvisar EOF
+eller andra fel. Leverantörens returkoder 40/207 behålls; meddelanden över
+8 MiB avvisas. Hjälparens yttre timeout och bildvalidering gäller fortfarande.
+Strukturens x86-64-fält har kontrollerats mot `palPipeRead` och `palPipeOpen`
+i det pinnade HP-biblioteket. Detta är inte ett generellt ABI för andra versioner.
+
+Regressionstestet laddar en syntetisk wrapper med den ursprungliga
+enläsningslogiken och skickar 70 759 byte genom en 4 KiB-pipe. En hjälpare
+byggd utan korrigeringen misslyckas; den nya hjälparen lyckas. Testet verifierar
+faktisk ELF-symbolbindning samt separata fall med EINTR och trunkerad data.
+Den verkliga daemonen kan fortsätta köras samtidigt som testerna; monitorn
+räknar nu endast sina egna daemonbarn som hälsobevis.
+
+Bygg med `make test`, installera med `sudo bash tools/install_service.sh` och
+kör guiden utan spårning. Korrigeringen är lokalt testad men riktiga svep
+återstår. Den privata rapporten och dess innehåll checkas inte in.
