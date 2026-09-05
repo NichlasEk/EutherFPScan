@@ -1,8 +1,9 @@
 # Automatisk start och hårdvarusession
 
-Status: tjänsten är installerad, aktiv och aktiverad vid uppbootning, verifierat
-2026-09-05. Första riktiga insamlingsförsöket nådde tjänsten men gav timeout.
-En fungerande bild är ännu inte verifierad.
+Status: en riktig bild på 200 × 255 pixlar lyckades 2026-09-05 kl. 08:19.
+Tjänsten är installerad och aktiverad vid uppbootning, men en senare uppdatering
+misslyckades vid start när läsaren bytte USB-adress. En korrigering är nu
+testad lokalt och väntar på installation och hårdvaruverifiering.
 Ingen inloggningsintegration eller automatisk insamling ingår.
 
 ## Installera
@@ -50,8 +51,12 @@ inte kalibrerad. Lägg bilder i `captures/`, som ignoreras av Git. `private/`,
 
 ## Isolering och livscykel
 
-Tjänsten identifierar exakt en USB-enhet med `138a:003d` vid start och ger
-sandboxen åtkomst till just den enhetsnoden. Daemon och hjälpare delar privat
+Tjänsten identifierar exakt en USB-enhet med `138a:003d` vid start. En
+värdprocess följer sysfs var 100 ms och underhåller en filtrerad katalog med
+läsarens aktuella USB-enhetsnod under `/run/eutherfpscan/usb`. Obsoleta noder
+tas bort innan ersättare läggs till. Katalogen exponeras skrivskyddad som
+sandboxens `/dev/bus/usb`; aliaset under `/run/eutherfpscan/usb` är också
+skrivskyddat. Daemon och hjälpare delar privat
 IPC och `/tmp`; nätverk, processnamnrymd och övriga USB-enheter är isolerade.
 Sysfs är läsbart för enhetsupptäckt. Privat leverantörstillstånd ligger i
 `/var/lib/eutherfpscan/etc` och exponeras som sandboxens `/etc`.
@@ -59,9 +64,9 @@ Kontrollsocketen under `/run/eutherfpscan` är endast åtkomlig för root.
 
 Systemd stoppar hela processgruppen, och sandboxens PID-namnrymd tar hand
 om forkade daemonprocesser. Vid omstart av datorn startas endast daemonen;
-en bild tas bara efter ett uttryckligt capture-anrop. Om läsaren får en ny
-USB-adress efter återanslutning eller vila behövs en tjänsteomstart. Detta
-och riktig uppbootning är ännu inte hårdvarutestade.
+en bild tas bara efter ett uttryckligt capture-anrop. Nya USB-adresser syns
+utan omstart av sandboxen. Leverantörsdaemonens återhämtning efter
+återanslutning/vila samt riktig uppbootning återstår att hårdvarutesta.
 
 Det gamla `validity-sensor setowner -doinit`, leverantörens udev-skript och
 firmwarefiler installeras inte av detta skript.
@@ -86,6 +91,19 @@ fprintd eller Debian-systembiblioteken görs av installationen.
   Det är inte ett lyckat hårdvarutest.
 - Användaren installerade tjänsten med sudo. Agenten verifierade därefter
   `active` och `enabled`; agentens sudo-session kräver fortfarande lösenord.
+
+## USB-adressbyte vid senaste uppdateringen
+
+Journalen visar start mot `003/005` kl. 08:46:48 följt av utebliven IPC-markör.
+Efter felet visade `lsusb` samma läsare på `003/006`, med enhetsnoden skapad
+kl. 08:46; `003/005` fanns inte längre. Den tidigare bind-mounten av en enda
+nod kunde inte följa detta byte. Den filtrerade USB-katalogen ersätter denna
+statiska koppling. Inga reset-, setowner- eller firmwarekommandon har körts.
+
+Fjorton tester passerar efter korrigeringen, inklusive en riktig bubblewrap-
+sandbox med syntetiska nodfiler: den ser att `003/005` försvinner och `003/006`
+tillkommer, och båda katalogvägarna förblir skrivskyddade. Skapande av riktiga
+USB-teckenenheter kräver root och verifieras vid användarens installation.
 
 ## Diagnostik efter första timeouten
 

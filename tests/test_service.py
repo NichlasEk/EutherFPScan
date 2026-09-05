@@ -1,6 +1,8 @@
 import os
 from pathlib import Path
 import signal
+import shutil
+import stat
 import socket
 import subprocess
 import sys
@@ -9,10 +11,71 @@ import time
 import unittest
 
 from tools.capture import decode
-from tools.service import usb_node
+from tools.service import UsbMirror, usb_node
 
 
 class ServiceTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("bwrap"), "bubblewrap not available")
+    def test_sandbox_sees_updated_readonly_usb_directory(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            mirror = UsbMirror(root / "usb", make_node=lambda path, mode, dev: path.touch())
+            mirror.sync({"003/005": os.makedev(189, 260)})
+            code = (
+                "from pathlib import Path; import sys; "
+                "assert Path('/dev/bus/usb/003/005').exists(); print('ready',flush=True); "
+                "sys.stdin.readline(); "
+                "assert not Path('/dev/bus/usb/003/005').exists(); "
+                "assert Path('/dev/bus/usb/003/006').exists(); "
+                "exec(\"for path in ['/dev/bus/usb/003/006','/run/service/usb/003/006']:\\n"
+                " try: Path(path).write_text('forbidden')\\n"
+                " except OSError as e: assert e.errno == 30\\n"
+                " else: raise AssertionError('USB view was writable')\")"
+            )
+            command = ["bwrap", "--unshare-all", "--die-with-parent", "--ro-bind", "/usr", "/usr",
+                       "--symlink", "usr/lib", "/lib", "--symlink", "usr/lib64", "/lib64",
+                       "--dev", "/dev", "--dev-bind", str(root / "usb"), "/dev/bus/usb",
+                       "--remount-ro", "/dev/bus/usb", "--bind", str(root), "/run/service",
+                       "--ro-bind", str(root / "usb"), "/run/service/usb",
+                       "--", "/usr/bin/python3", "-c", code]
+            proc = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE, text=True)
+            try:
+                self.assertEqual(proc.stdout.readline().strip(), "ready")
+                mirror.sync({"003/006": os.makedev(189, 261)})
+                stdout, stderr = proc.communicate("updated\n", timeout=3)
+                self.assertEqual(proc.returncode, 0, stdout + stderr)
+            finally:
+                if proc.poll() is None:
+                    proc.kill()
+                proc.communicate()
+
+    def test_usb_mirror_tracks_new_address_and_removal(self):
+        with tempfile.TemporaryDirectory() as folder:
+            created = []
+
+            def make_node(path, mode, device):
+                created.append((path.name, mode, device))
+                path.touch()
+
+            mirror = UsbMirror(folder, make_node=make_node)
+            mirror.sync({"003/005": os.makedev(189, 260)})
+            mirror.sync({"003/005": os.makedev(189, 260)})
+            self.assertEqual(len(created), 1)
+            mirror.sync({"003/006": os.makedev(189, 261)})
+            self.assertFalse((Path(folder) / "003/005").exists())
+            self.assertTrue((Path(folder) / "003/006").exists())
+            self.assertEqual(created[-1][1], stat.S_IFCHR | 0o600)
+            mirror.sync({})
+            self.assertFalse((Path(folder) / "003/006").exists())
+
+    def test_usb_mirror_rejects_paths_outside_mirror(self):
+        with tempfile.TemporaryDirectory() as folder:
+            mirror = UsbMirror(folder)
+            for name in ("/dev/bus/usb/003/006", "../escape", "003/../../escape"):
+                with self.subTest(name=name), self.assertRaises(ValueError):
+                    mirror.sync({name: os.makedev(189, 261)})
+
     def test_usb_selection(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)

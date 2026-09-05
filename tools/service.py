@@ -3,6 +3,7 @@ import argparse
 import os
 from pathlib import Path
 import signal
+import stat
 import socket
 import struct
 import subprocess
@@ -19,7 +20,7 @@ SOCKET = "/run/eutherfpscan/control.sock"
 READY = Path("/tmp/vcsSemKey_ServiceReady")
 
 
-def usb_node(sysfs=Path("/sys/bus/usb/devices")):
+def usb_node(sysfs=Path("/sys/bus/usb/devices"), allow_missing=False):
     matches = []
     for entry in sysfs.iterdir():
         try:
@@ -30,29 +31,109 @@ def usb_node(sysfs=Path("/sys/bus/usb/devices")):
                 matches.append(f"/dev/bus/usb/{bus:03d}/{dev:03d}")
         except (OSError, ValueError):
             continue
+    if not matches and allow_missing:
+        return None
     if len(matches) != 1:
         raise RuntimeError(f"Expected one VFS491, found {len(matches)}")
     return matches[0]
 
 
+class UsbMirror:
+    """Host-maintained view of only the selected sensor's device node.
+
+    The sandbox mounts this directory read-only. Changes to its contents
+    remain visible when udev gives the same sensor a new USB address.
+    """
+    def __init__(self, root, make_node=os.mknod):
+        self.root = Path(root)
+        self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        self.make_node = make_node
+        self.current = {}
+
+    def sync(self, nodes):
+        for name in nodes:
+            relative = Path(name)
+            if (relative.is_absolute() or len(relative.parts) != 2 or
+                    not all(len(part) == 3 and part.isdecimal() for part in relative.parts)):
+                raise ValueError("Invalid USB node name")
+        # Remove obsolete nodes before adding replacements, so unrelated
+        # devices cannot remain exposed through an old USB minor number.
+        for name in self.current.keys() - nodes.keys():
+            (self.root / name).unlink(missing_ok=True)
+        for name, device in nodes.items():
+            if self.current.get(name) == device:
+                continue
+            relative = Path(name)
+            target = self.root / relative
+            target.parent.mkdir(mode=0o700, exist_ok=True)
+            target.unlink(missing_ok=True)
+            self.make_node(target, stat.S_IFCHR | 0o600, device)
+        if self.current != nodes:
+            print("USB exposure: " + (", ".join(sorted(nodes)) or "sensor temporarily absent"),
+                  flush=True)
+        self.current = dict(nodes)
+
+
+def current_usb_nodes():
+    node = usb_node(allow_missing=True)
+    if node is None:
+        return {}
+    try:
+        info = os.stat(node)
+    except FileNotFoundError:
+        return {}  # udev may be between removal and creation
+    if not stat.S_ISCHR(info.st_mode) or os.major(info.st_rdev) != 189:
+        raise RuntimeError("Unexpected USB device node")
+    return {"/".join(Path(node).parts[-2:]): info.st_rdev}
+
+
 def launch():
-    node = usb_node()
+    # Validate uniqueness before starting any vendor process.
+    usb_node()
+    mirror = UsbMirror("/run/eutherfpscan/usb")
+    mirror.sync(current_usb_nodes())
     os.makedirs("/var/lib/eutherfpscan/etc", mode=0o700, exist_ok=True)
     command = [
         "bwrap", "--unshare-all", "--die-with-parent", "--new-session", "--clearenv",
         "--ro-bind", "/usr", "/usr", "--symlink", "usr/lib", "/lib",
         "--symlink", "usr/lib64", "/lib64", "--symlink", "usr/bin", "/bin",
         "--proc", "/proc", "--dev", "/dev", "--ro-bind", "/sys", "/sys",
-        "--dev-bind", node, node, "--tmpfs", "/tmp", "--dir", "/var",
+        "--dev-bind", str(mirror.root), "/dev/bus/usb",
+        "--remount-ro", "/dev/bus/usb", "--tmpfs", "/tmp", "--dir", "/var",
         "--dir", "/run", "--symlink", "/run", "/var/run",
         "--bind", "/run/eutherfpscan", "/run/eutherfpscan",
+        # Hide the writable alias of the mirrored USB directory.
+        "--ro-bind", str(mirror.root), "/run/eutherfpscan/usb",
         "--bind", "/var/lib/eutherfpscan/etc", "/etc",
         "--ro-bind", str(BASE), "/opt/eutherfpscan",
         "--setenv", "LD_LIBRARY_PATH", "/opt/eutherfpscan/lib",
         "--", "/usr/bin/python3", "/opt/eutherfpscan/tools/service.py", "--inside",
     ]
-    print(f"Starting isolated daemon with USB {node}", flush=True)
-    os.execvp(command[0], command)
+    print("Starting isolated daemon with a tracked VFS491 USB view", flush=True)
+    stopped = False
+
+    def stop(*_):
+        nonlocal stopped
+        stopped = True
+
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+    child = subprocess.Popen(command)
+    try:
+        while child.poll() is None and not stopped:
+            mirror.sync(current_usb_nodes())
+            time.sleep(.1)
+        if not stopped and child.returncode:
+            raise RuntimeError(f"VFS sandbox exited {child.returncode}")
+    finally:
+        if child.poll() is None:
+            child.terminate()
+            try:
+                child.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                child.kill()
+                child.wait()
+        mirror.sync({})
 
 
 def serve():

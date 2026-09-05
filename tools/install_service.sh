@@ -35,4 +35,5 @@ for ((task_attempt=0; task_attempt<20; task_attempt++)); do
     sleep 1
 done
 echo 'Readiness failed; automatic startup was not newly enabled. Check: sudo journalctl -u eutherfpscan -n 60 --no-pager' >&2
+journalctl -u eutherfpscan -n 25 --no-pager >&2 || true
 exit 1
