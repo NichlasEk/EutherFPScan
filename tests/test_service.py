@@ -11,12 +11,25 @@ import time
 import unittest
 
 from tools.capture import decode
-from tools.service import UsbMirror, usb_node
+from tools.service import StartupLog, UsbMirror, usb_node, usb_mount_args
 
 
 class ServiceTests(unittest.TestCase):
+    def test_vendor_log_discards_messages_after_startup(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "syslog"
+            with StartupLog(path) as log, socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as client:
+                client.sendto(b"startup diagnostic", str(path))
+                deadline = time.monotonic() + 1
+                while not log.messages and time.monotonic() < deadline:
+                    time.sleep(.01)
+                self.assertEqual(list(log.messages), ["startup diagnostic"])
+                log.ready()
+                client.sendto(b"capture-phase message", str(path))
+                time.sleep(.15)
+                self.assertEqual(list(log.messages), [])
     @unittest.skipUnless(shutil.which("bwrap"), "bubblewrap not available")
-    def test_sandbox_sees_updated_readonly_usb_directory(self):
+    def test_sandbox_sees_updated_usb_directory(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             mirror = UsbMirror(root / "usb", make_node=lambda path, mode, dev: path.touch())
@@ -27,15 +40,15 @@ class ServiceTests(unittest.TestCase):
                 "sys.stdin.readline(); "
                 "assert not Path('/dev/bus/usb/003/005').exists(); "
                 "assert Path('/dev/bus/usb/003/006').exists(); "
-                "exec(\"for path in ['/dev/bus/usb/003/006','/run/service/usb/003/006']:\\n"
+                "exec(\"for path in ['/run/service/usb/003/006']:\\n"
                 " try: Path(path).write_text('forbidden')\\n"
                 " except OSError as e: assert e.errno == 30\\n"
                 " else: raise AssertionError('USB view was writable')\")"
             )
             command = ["bwrap", "--unshare-all", "--die-with-parent", "--ro-bind", "/usr", "/usr",
                        "--symlink", "usr/lib", "/lib", "--symlink", "usr/lib64", "/lib64",
-                       "--dev", "/dev", "--dev-bind", str(root / "usb"), "/dev/bus/usb",
-                       "--remount-ro", "/dev/bus/usb", "--bind", str(root), "/run/service",
+                       "--dev", "/dev", *usb_mount_args(root / "usb"),
+                       "--bind", str(root), "/run/service",
                        "--ro-bind", str(root / "usb"), "/run/service/usb",
                        "--", "/usr/bin/python3", "-c", code]
             proc = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -49,6 +62,22 @@ class ServiceTests(unittest.TestCase):
                 if proc.poll() is None:
                     proc.kill()
                 proc.communicate()
+
+    @unittest.skipUnless(shutil.which("bwrap"), "bubblewrap not available")
+    def test_usb_mount_permits_character_device_access_without_capabilities(self):
+        # /dev/null is a harmless real character device. Regular files cannot
+        # detect the nodev regression that broke the previous USB mount.
+        code = ("import os; "
+                "fd=os.open('/dev/bus/usb/null',os.O_RDWR); os.close(fd); "
+                "assert int(next(l.split()[1] for l in open('/proc/self/status') "
+                "if l.startswith('CapEff:')),16)==0; print('DEVICE_OPEN_OK')")
+        result = subprocess.run([
+            "bwrap", "--unshare-all", "--die-with-parent", "--ro-bind", "/usr", "/usr",
+            "--symlink", "usr/lib", "/lib", "--symlink", "usr/lib64", "/lib64",
+            "--proc", "/proc", "--dev", "/dev", *usb_mount_args("/dev"),
+            "--", "/usr/bin/python3", "-c", code], capture_output=True, text=True, timeout=5)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("DEVICE_OPEN_OK", result.stdout)
 
     def test_usb_mirror_tracks_new_address_and_removal(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -108,6 +137,7 @@ class ServiceTests(unittest.TestCase):
             path = str(root / "control.sock")
             code = ("from pathlib import Path; from tools import service; "
                     f"service.BASE=Path({folder!r}); service.SOCKET={path!r}; "
+                    f"service.SYSLOG=Path({str(root / 'syslog')!r}); "
                     f"service.READY=Path({str(ready)!r}); service.serve()")
             proc = subprocess.Popen([sys.executable, "-c", code],
                                     stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,

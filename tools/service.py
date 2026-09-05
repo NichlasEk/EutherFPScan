@@ -1,5 +1,6 @@
 """Isolated VFS daemon and serialized capture socket. No enrollment or firmware tools."""
 import argparse
+from collections import deque
 import os
 from pathlib import Path
 import signal
@@ -8,6 +9,7 @@ import socket
 import struct
 import subprocess
 import sys
+import threading
 import time
 
 try:
@@ -18,6 +20,63 @@ except ImportError:
 BASE = Path(__file__).resolve().parents[1]
 SOCKET = "/run/eutherfpscan/control.sock"
 READY = Path("/tmp/vcsSemKey_ServiceReady")
+SYSLOG = Path("/dev/log")
+
+
+class StartupLog:
+    """Drain vendor syslog; retain only bounded startup messages, never captures."""
+    def __init__(self, path):
+        self.path = path
+        self.messages = deque(maxlen=24)
+        self.lock = threading.Lock()
+        self.record = True
+        self.stop = threading.Event()
+
+    def __enter__(self):
+        self.socket = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        self.socket.bind(str(self.path))
+        self.socket.settimeout(.1)
+        self.thread = threading.Thread(target=self.drain)
+        self.thread.start()
+        return self
+
+    def drain(self):
+        while not self.stop.is_set():
+            try:
+                message = self.socket.recv(1024)
+            except TimeoutError:
+                continue
+            with self.lock:
+                if self.record:
+                    self.messages.append(message.decode(errors="replace"))
+
+    def ready(self):
+        with self.lock:
+            self.record = False
+            self.messages.clear()
+
+    def __exit__(self, kind, error, traceback):
+        self.stop.set()
+        self.thread.join(timeout=1)
+        self.socket.close()
+        self.path.unlink(missing_ok=True)
+        if error:
+            for message in self.messages:
+                # Render control characters as escapes in the journal.
+                print("VENDOR_STARTUP " + ascii(message), flush=True)
+
+
+def check_usb_access():
+    nodes = list(Path("/dev/bus/usb").glob("*/*"))
+    if not nodes:
+        raise RuntimeError("No sensor device node visible inside sandbox")
+    for node in nodes:
+        if not stat.S_ISCHR(node.stat().st_mode):
+            raise RuntimeError("Unexpected non-device in USB view")
+        # Open and close only: no USB transfer, reset or initialization.
+        fd = os.open(node, os.O_RDWR | os.O_CLOEXEC)
+        os.close(fd)
+        print(f"USB_OPEN_OK {node}", flush=True)
 
 
 def usb_node(sysfs=Path("/sys/bus/usb/devices"), allow_missing=False):
@@ -41,8 +100,8 @@ def usb_node(sysfs=Path("/sys/bus/usb/devices"), allow_missing=False):
 class UsbMirror:
     """Host-maintained view of only the selected sensor's device node.
 
-    The sandbox mounts this directory read-only. Changes to its contents
-    remain visible when udev gives the same sensor a new USB address.
+    Changes remain visible when udev gives the sensor a new USB address.
+    The device mount must permit device access (no nodev flag).
     """
     def __init__(self, root, make_node=os.mknod):
         self.root = Path(root)
@@ -50,7 +109,7 @@ class UsbMirror:
         self.make_node = make_node
         self.current = {}
 
-    def sync(self, nodes):
+    def sync(self, nodes, cleanup=False):
         for name in nodes:
             relative = Path(name)
             if (relative.is_absolute() or len(relative.parts) != 2 or
@@ -69,7 +128,8 @@ class UsbMirror:
             target.unlink(missing_ok=True)
             self.make_node(target, stat.S_IFCHR | 0o600, device)
         if self.current != nodes:
-            print("USB exposure: " + (", ".join(sorted(nodes)) or "sensor temporarily absent"),
+            print("USB exposure: " + ("cleared during shutdown" if cleanup else
+                  (", ".join(sorted(nodes)) or "sensor temporarily absent")),
                   flush=True)
         self.current = dict(nodes)
 
@@ -87,6 +147,13 @@ def current_usb_nodes():
     return {"/".join(Path(node).parts[-2:]): info.st_rdev}
 
 
+def usb_mount_args(source):
+    # Bubblewrap --remount-ro adds nodev, even after --dev-bind. This would
+    # cause EACCES when opening the USB character device. Drop capabilities
+    # explicitly instead; only the host can create new device nodes.
+    return ["--dev-bind", str(source), "/dev/bus/usb", "--cap-drop", "ALL"]
+
+
 def launch():
     # Validate uniqueness before starting any vendor process.
     usb_node()
@@ -98,11 +165,10 @@ def launch():
         "--ro-bind", "/usr", "/usr", "--symlink", "usr/lib", "/lib",
         "--symlink", "usr/lib64", "/lib64", "--symlink", "usr/bin", "/bin",
         "--proc", "/proc", "--dev", "/dev", "--ro-bind", "/sys", "/sys",
-        "--dev-bind", str(mirror.root), "/dev/bus/usb",
-        "--remount-ro", "/dev/bus/usb", "--tmpfs", "/tmp", "--dir", "/var",
+        *usb_mount_args(mirror.root), "--tmpfs", "/tmp", "--dir", "/var",
         "--dir", "/run", "--symlink", "/run", "/var/run",
         "--bind", "/run/eutherfpscan", "/run/eutherfpscan",
-        # Hide the writable alias of the mirrored USB directory.
+        # The alias is not used for device I/O.
         "--ro-bind", str(mirror.root), "/run/eutherfpscan/usb",
         "--bind", "/var/lib/eutherfpscan/etc", "/etc",
         "--ro-bind", str(BASE), "/opt/eutherfpscan",
@@ -133,10 +199,15 @@ def launch():
             except subprocess.TimeoutExpired:
                 child.kill()
                 child.wait()
-        mirror.sync({})
+        mirror.sync({}, cleanup=True)
 
 
 def serve():
+    with StartupLog(SYSLOG) as startup_log:
+        serve_with_log(startup_log)
+
+
+def serve_with_log(startup_log):
     os.umask(0o077)
     stopped = False
 
@@ -157,6 +228,7 @@ def serve():
         if daemon.poll() not in (None, 0):
             raise RuntimeError(f"VFS daemon exited {daemon.returncode}")
         time.sleep(.1)
+    startup_log.ready()
     Path(SOCKET).unlink(missing_ok=True)
     with socket.socket(socket.AF_UNIX) as server:
         server.bind(SOCKET)
@@ -224,6 +296,7 @@ if __name__ == "__main__":
         if args.launch:
             launch()
         elif args.inside:
+            check_usb_access()
             serve()
         else:
             request(args.status)

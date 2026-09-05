@@ -54,9 +54,11 @@ inte kalibrerad. Lägg bilder i `captures/`, som ignoreras av Git. `private/`,
 Tjänsten identifierar exakt en USB-enhet med `138a:003d` vid start. En
 värdprocess följer sysfs var 100 ms och underhåller en filtrerad katalog med
 läsarens aktuella USB-enhetsnod under `/run/eutherfpscan/usb`. Obsoleta noder
-tas bort innan ersättare läggs till. Katalogen exponeras skrivskyddad som
-sandboxens `/dev/bus/usb`; aliaset under `/run/eutherfpscan/usb` är också
-skrivskyddat. Daemon och hjälpare delar privat
+tas bort innan ersättare läggs till. Katalogen exponeras med `--dev-bind` som
+sandboxens `/dev/bus/usb`, med enhetsåtkomst tillåten. Den katalogvägen är
+skrivbar; processens capabilities tas uttryckligen bort med `--cap-drop ALL`
+så att den inte kan skapa nya teckenenheter. Aliaset under
+`/run/eutherfpscan/usb` är skrivskyddat. Daemon och hjälpare delar privat
 IPC och `/tmp`; nätverk, processnamnrymd och övriga USB-enheter är isolerade.
 Sysfs är läsbart för enhetsupptäckt. Privat leverantörstillstånd ligger i
 `/var/lib/eutherfpscan/etc` och exponeras som sandboxens `/etc`.
@@ -100,10 +102,29 @@ kl. 08:46; `003/005` fanns inte längre. Den tidigare bind-mounten av en enda
 nod kunde inte följa detta byte. Den filtrerade USB-katalogen ersätter denna
 statiska koppling. Inga reset-, setowner- eller firmwarekommandon har körts.
 
-Fjorton tester passerar efter korrigeringen, inklusive en riktig bubblewrap-
-sandbox med syntetiska nodfiler: den ser att `003/005` försvinner och `003/006`
-tillkommer, och båda katalogvägarna förblir skrivskyddade. Skapande av riktiga
-USB-teckenenheter kräver root och verifieras vid användarens installation.
+Det första testet av denna korrigering använde vanliga filer som nodattrapper.
+Det visade att adressbyten syntes, men kunde inte kontrollera faktisk
+teckenenhetsåtkomst. Det var otillräckligt: se nästa avsnitt.
+
+## Korrigering av nodev-regression
+
+Nästa hårdvarustart kl. 08:53 misslyckades också. En lokal reproduktion med
+`/dev/null` visade att Bubblewrap `--remount-ro` lade till `nodev` och gav
+`EACCES` vid öppning, trots föregående `--dev-bind`. Den inställningen har
+tagits bort från USB-vägen. Ett nytt regressionstest använder en riktig
+teckenenhet (`/dev/null`) och kontrollerar både lyckad öppning och `CapEff=0`.
+Sexton tester passerar nu. Hårdvarustarten måste fortfarande verifieras.
+
+Vid start kontrollerar sandboxen synliga teckenenheter genom `open(O_RDWR)`
+och omedelbar `close`, utan överföring, reset eller initiering. Lyckad
+kontroll ger `USB_OPEN_OK`. Ett fel visas innan leverantörsdaemonen startas.
+En privat `/dev/log` samlar högst 24 uppstartsmeddelanden à 1024 byte och
+skriver dem som `VENDOR_STARTUP` om daemonstarten misslyckas. Efter readiness
+raderas bufferten och fortsatta loggmeddelanden dräneras utan att sparas.
+
+Raden `sensor temporarily absent` kl. 08:53:29 kom från den gamla
+städningsloggningen, inte från observerad frånkoppling. Städningen loggas nu
+uttryckligen som `cleared during shutdown`.
 
 ## Diagnostik efter första timeouten
 
