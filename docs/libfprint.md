@@ -1,8 +1,8 @@
 # libfprint och vägen till sudo
 
 Den nya bilddrivrutinen `euther_vfs491` är byggd mot libfprint 1.94.9 och
-testad isolerat. Debians riktiga fprintd kan upptäcka enheten med detta
-bibliotek. Registrering med nya svep från läsaren återstår före sudo-aktivering.
+testad isolerat och med riktiga svep. Registrering, rätt/fel finger och ny
+verifiering efter avbrott har lyckats. Sudo-aktivering återstår enligt nedan.
 
 ## Bygg och verifiera
 
@@ -128,11 +128,46 @@ koppling till systemets root-körda fprintd eller sudo.
 
 ## Sudo efter godkända hårdvarutester
 
-Nästa steg är att lägga `pam_fprintd` före lösenordsautentiseringen enbart
-för sudo, med lösenord kvar som reserv efter fel eller timeout. PAM är ännu
-oförändrat. Fingeravtryck och lösenord erbjuds normalt i följd i denna PAM-
-stack, inte samtidigt. Slutprovet måste köras från agentens egen PTY med en
-ny sudo-autentisering och ett uttryckligt fingersvep.
+Hårdvaruproven har nu lyckats: höger pekfinger är registrerat, rätt finger
+gav `verify-match`, ett annat finger gav `verify-no-match`, och användarens
+nya verifiering efter agentens Ctrl+C-prov gav `verify-match`.
+
+Sudo-installationen är förberedd men ännu inte aktiverad. Förhandsgranska,
+aktivera och prova i användarens synliga terminal:
+
+```sh
+python3 tools/install_sudo.py
+sudo python3 tools/install_sudo.py --apply
+sudo -k
+sudo whoami
+```
+
+Svep registrerat finger vid uppmaningen. Resultatet ska vara `root`.
+Gör sedan ett nytt `sudo -k` och `sudo whoami`, låt bli att svepa och
+kontrollera att lösenord fungerar efter väntetiden. Regeln är
+`auth sufficient pam_fprintd.so max-tries=1 timeout=15` före `common-auth`
+enbart i `/etc/pam.d/sudo`. PAM kör alternativen i följd. Kontroller av konto,
+session och sudoers-behörighet gäller fortfarande. Inga lösenord tas emot i chatten.
+
+Skriptet kontrollerar att sudo och common-auth motsvarar granskade versioner,
+sparar originalet root-skyddat i `/var/lib/eutherfpscan/pam-sudo.backup` och
+ersätter sudo-filen atomiskt. Upprepad installation gör ingen ny ändring.
+Återställ med:
+
+```sh
+sudo python3 tools/install_sudo.py --remove
+```
+
+Återställningen avbryts om PAM-filen har ändrats utanför skriptet.
+Tester kör den riktiga libpam med syntetiska autentiseringsresultat och
+privata konfigurationsfiler: träff, lösenordsfallback vid fel, avvisning när
+båda alternativen misslyckas, och fortsatta kontokontroller. Ingen riktig
+autentisering eller systemändring görs av testerna.
+
+Agentens verktygsterminal visas inte som användarens vanliga terminal.
+Ett framtida prov av sudo från agentens PTY måste därför föregås av ett
+uttryckligt besked i chatten och en överenskommen tid att svepa. Ett osynligt
+försök som får timeout är inte ett bevis på felaktig läsare.
 
 För att återgå till Debians vanliga fprintd-bibliotek:
 
