@@ -1,0 +1,7 @@
+# Lokala leverantörspaket, byggresultat och biometriska testdata
+/private/
+/vendor/
+/build/
+/captures/
+__pycache__/
+*.pyc
