@@ -17,6 +17,27 @@ from tools.service import StartupLog, UsbMirror, usb_node, usb_mount_args
 
 
 class ServiceTests(unittest.TestCase):
+    def test_daemon_detection_rejects_zombies_and_unrelated_processes(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            for pid, name, state in ((10, "vcsFPService", "S"), (11, "vcsFPService", "Z"),
+                                     (12, "python3", "S")):
+                entry = root / str(pid)
+                entry.mkdir()
+                (entry / "comm").write_text(name + "\n")
+                (entry / "stat").write_text(f"{pid} ({name}) {state} 1 2 3")
+            self.assertEqual(service.daemon_pids(root), [10])
+            (root / "10/stat").unlink()
+            self.assertEqual(service.daemon_pids(root), [])
+
+    def test_failure_summary_excludes_free_form_vendor_data(self):
+        error = RuntimeError("timeout\nEUTHER_STAGE device_init\nvendor private payload\n"
+                             "EUTHER_RESULT wait_service 54\nEUTHER_STAGE unknown_secret\n"
+                             "EUTHER_STAGE read_image extra-data\nEUTHER_RESULT capture 1\n")
+        self.assertEqual(service.helper_failure_summary(error),
+                         ["EUTHER_STAGE device_init", "EUTHER_RESULT wait_service 54",
+                          "EUTHER_RESULT capture 1"])
+
     def test_launch_cleans_private_usb_directory_on_exit_and_startup_failure(self):
         real_temporary_directory = tempfile.TemporaryDirectory
         for fail in (False, True):
@@ -152,7 +173,7 @@ class ServiceTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 usb_node(root)
 
-    def test_socket_session_and_shutdown(self):
+    def test_socket_session_stops_when_daemon_dies_despite_readiness_marker(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
             (root / "private").mkdir()
@@ -160,7 +181,11 @@ class ServiceTests(unittest.TestCase):
             ready = root / "ready"
             daemon = root / "private/vcsFPService"
             daemon.write_text("#!/usr/bin/python3\nfrom pathlib import Path\n"
-                              f"Path({str(ready)!r}).touch()\n")
+                              "import ctypes, os, time\n"
+                              "ctypes.CDLL(None).prctl(15, b'vcsFPService', 0, 0, 0)\n"
+                              f"Path({str(root / 'daemon.pid')!r}).write_text(str(os.getpid()))\n"
+                              f"Path({str(ready)!r}).touch()\n"
+                              "time.sleep(30)\n")
             helper = root / "bin/euther-capture"
             helper.write_text("#!/usr/bin/python3\nimport os\n"
                               "os.write(1,b'EFP1'+bytes.fromhex('0000000100000001')+b'x')\n")
@@ -196,10 +221,14 @@ class ServiceTests(unittest.TestCase):
                 self.assertEqual(decode(request(b"C")), (1, 1, b"x"))
                 self.assertIn(b"ERROR", request(b"X"))
                 self.assertEqual(decode(request(b"C")), (1, 1, b"x"))
-                proc.terminate()
-                self.assertEqual(proc.wait(timeout=3), 0)
+                os.kill(int((root / 'daemon.pid').read_text()), signal.SIGTERM)
+                self.assertTrue(ready.exists())
+                self.assertNotEqual(proc.wait(timeout=3), 0)
+                self.assertIn(b"VFS_DAEMON_GONE", proc.stderr.read())
             finally:
-                if proc.poll() is None:
+                try:
                     os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
                 proc.wait()
                 proc.stderr.close()

@@ -3,6 +3,7 @@ import argparse
 from collections import deque
 import os
 from pathlib import Path
+import re
 import signal
 import stat
 import socket
@@ -22,6 +23,44 @@ BASE = Path(__file__).resolve().parents[1]
 SOCKET = "/run/eutherfpscan/control.sock"
 READY = Path("/tmp/vcsSemKey_ServiceReady")
 SYSLOG = Path("/dev/log")
+
+
+def daemon_pids(proc=Path("/proc")):
+    """Find live vendor processes in this sandbox, excluding zombies."""
+    found = []
+    for entry in proc.iterdir():
+        if not entry.name.isdecimal():
+            continue
+        try:
+            if entry.joinpath("comm").read_text().strip() != "vcsFPService":
+                continue
+            state = entry.joinpath("stat").read_text().rsplit(") ", 1)[1].split()[0]
+            if state not in ("Z", "X"):
+                found.append(int(entry.name))
+        except (FileNotFoundError, ProcessLookupError):
+            continue  # Process exited between reads.
+    return sorted(found)
+
+
+def require_daemon():
+    if not daemon_pids():
+        raise RuntimeError("VFS_DAEMON_GONE: no live vcsFPService; readiness marker is insufficient")
+
+
+def helper_failure_summary(error):
+    # Only our fixed stage names and numeric results may reach the journal.
+    # Do not include free-form vendor diagnostics or image data.
+    allowed = {"load_wrapper", "wait_service", "set_matcher", "device_init",
+               "capture_wait_for_swipe", "read_image", "free_image",
+               "clean_handles", "device_exit", "unload_wrapper", "capture"}
+    result = []
+    for line in str(error).splitlines():
+        match = re.fullmatch(r"EUTHER_(STAGE|RESULT) ([a-z_]+)(?: (-?[0-9]{1,11}))?", line)
+        if match and match[2] in allowed:
+            if (match[1] == "STAGE" and match[3] is None or
+                    match[1] == "RESULT" and match[3] is not None):
+                result.append(match[0])
+    return result[-24:]
 
 
 class StartupLog:
@@ -231,12 +270,13 @@ def serve_with_log(startup_log):
     # not sensor readiness; the first actual capture is the hardware check.
     deadline = time.monotonic() + 15
     ready = READY
-    while not ready.exists():
+    while not (ready.exists() and daemon_pids()):
         if stopped or time.monotonic() >= deadline:
             raise RuntimeError("VFS daemon did not create its IPC readiness marker")
         if daemon.poll() not in (None, 0):
             raise RuntimeError(f"VFS daemon exited {daemon.returncode}")
         time.sleep(.1)
+    print("VFS_DAEMON_ALIVE: " + ",".join(map(str, daemon_pids())), flush=True)
     startup_log.ready()
     Path(SOCKET).unlink(missing_ok=True)
     with socket.socket(socket.AF_UNIX) as server:
@@ -246,6 +286,7 @@ def serve_with_log(startup_log):
         server.settimeout(.5)
         print("IPC_READY: daemon initialized; sensor capture remains unverified", flush=True)
         while not stopped:
+            require_daemon()
             try:
                 connection, _ = server.accept()
             except TimeoutError:
@@ -255,6 +296,7 @@ def serve_with_log(startup_log):
                 try:
                     # Fixed one-byte commands avoid framing ambiguity.
                     command = connection.recv(1)
+                    require_daemon()
                     if command == b"S":
                         connection.sendall(b"IPC_READY; hardware capture not implied\n")
                     elif command == b"C":
@@ -270,6 +312,8 @@ def serve_with_log(startup_log):
                     # Vendor diagnostics can include device data: return only to
                     # the root client; journal records the exception class.
                     print(f"Request failed: {type(exc).__name__}", flush=True)
+                    for summary in helper_failure_summary(exc):
+                        print(summary, flush=True)
                     try:
                         connection.sendall(("ERROR: " + str(exc)[:4096]).encode())
                     except OSError:

@@ -20,7 +20,8 @@ tjänsten. Det aktiverar start vid uppbootning först efter ett lyckat
 statusanrop genom daemonens socket. Ingen kod körs från din hemkatalog av den
 installerade tjänsten. Ändringar i repot kräver att installationsskriptet körs igen.
 
-`IPC_READY` betyder att daemonen skapade sin interna kommunikation, inte att
+`IPC_READY` kräver nu både readiness-fil och en levande `vcsFPService` i
+sandboxens processnamnrymd. Det betyder att daemonen skapade sin interna kommunikation, inte att
 en fungerande fingeravtrycksbild har verifierats. Systemd-status `active`
 räcker inte som bevis på fungerande läsare. Vid misslyckad start ska loggarna
 granskas innan nästa försök. Tjänsten gör inga automatiska omstarter vid fel.
@@ -170,3 +171,29 @@ insamlingsförsök enligt ovan. Installationen startar om den gamla daemonen
 så nästa försök får en ny IPC-session. Rapportera sista `EUTHER_STAGE` och
 eventuella returkoder. `capture_wait_for_swipe` betyder att capture-funktionen
 anropades; det bevisar inte ensamt att hårdvaran är redo.
+
+## Försvunnen daemon och returkod 54
+
+Ett senare direktförsök gav `EUTHER_RESULT wait_service 54`. Statisk
+disassemblering av den installerade wrappern visar att funktionen först
+kör `pidof vcsFPService` och sedan väntar på readiness-filen. Båda
+väntelooparnas felvägar returnerar 54; det är inte ett svep- eller matchningsfel.
+En samtidig processkontroll visade att `vcsFPService` saknades medan
+Python-supervisorn fortfarande körde. En kvarlämnad readiness-fil räckte
+tidigare för att fortsätta rapportera redo.
+
+Tjänsten kontrollerar nu levande, icke-zombie daemonprocesser vid uppstart,
+varje varv i socketloopen (0,5 sekunders accept-timeout) och före ett kommando.
+En pågående insamling har fortfarande sin 35-sekundersgräns; därefter görs
+nästa livskontroll. Försvunnen daemon ger `VFS_DAEMON_GONE` och felstatus,
+utan automatisk omstart. Vid insamlingsfel loggas endast vitlistade
+`EUTHER_STAGE`-namn och numeriska `EUTHER_RESULT`, aldrig fria leverantörsloggar
+eller bilddata. Ett processtest verifierar att en kvarlämnad readiness-fil
+inte döljer att daemonen dött. Totalt 22 enhetstester passerar.
+
+Den granskade kernelloggen visade endast en äldre `fprint-check`-segfault,
+inte en daemonkrasch. Tjänstens cgroup hade noll OOM-händelser. Orsaken till
+daemonens försvinnande är ännu inte fastställd. Uppdatera med
+`sudo bash tools/install_service.sh` och gör ett guidat försök med
+`sudo python3 tools/enroll.py "$USER"`. Granska de nya stegraderna i journalen
+vid fel innan ytterligare försök.
