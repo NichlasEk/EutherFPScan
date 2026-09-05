@@ -1,12 +1,16 @@
 # EutherFPScan
 
 Projekt för att få fingeravtrycksläsaren i en HP ProBook 4340s att fungera
-på Debian 13. Status: hårdvaran är identifierad; ingen fungerande drivrutin
-eller fingeravtrycksregistrering är implementerad ännu.
+på Debian 13. Status: en fristående prototyp och lokala kompatibilitetsbibliotek
+finns. Bildöverföringen är testad med syntetiska data; riktig bildinsamling och
+fingeravtrycksregistrering är ännu inte verifierade.
 
 Den äldre drivrutinen och HP:s originalbinärer är nu granskade.
 Se [portningsbedömning och byggsteg](docs/driver-review.md). Hjälpprogrammets
 C-kod kompilerar, men binärerna kräver äldre bibliotek som saknas på datorn.
+
+Vi bygger nu dessa bibliotek lokalt. Se [prototypens bygginstruktioner och
+testresultat](docs/prototype.md). Kör `make test` för tester utan hårdvaruåtkomst.
 
 ## Verifierat på utvecklingsdatorn, 2026-09-05
 
