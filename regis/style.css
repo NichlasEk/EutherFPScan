@@ -1,0 +1,53 @@
+window.regis { background: #090f18; color: #e6e8e9; font-family: "DejaVu Sans"; font-size: 13px; }
+headerbar { background: #101a27; border: none; box-shadow: none; color: #cfbb88; min-height: 34px; }
+headerbar button { background: transparent; border-color: transparent; box-shadow: none; }
+.sidebar { background: #0d1622; border-right: 1px solid #27313d; padding: 28px 20px; }
+.brand { font-family: "Liberation Serif"; font-size: 29px; color: #e0c890; }
+.eyebrow { font-size: 10px; font-weight: bold; color: #b4a37d; }
+.muted { color: #8f9ba9; font-size: 12px; }
+.dim { color: #708093; font-size: 11px; }
+.title { font-family: "Liberation Serif"; font-size: 36px; color: #eee5cd; }
+.user-title { font-family: "Liberation Serif"; font-size: 27px; color: #e9e4d6; }
+.subtitle { color: #a5b1c0; font-size: 13px; }
+.hero { background: linear-gradient(110deg, #182b40, #111d2b); border: 1px solid #354250; border-radius: 12px; padding: 18px 24px; }
+.seal { color: #cab57d; font-family: "Liberation Serif"; font-size: 45px; }
+button { background: #192536; border: 1px solid #354357; color: #e2e8ed; border-radius: 7px; padding: 10px 14px; box-shadow: none; text-shadow: none; }
+button:hover { background: #24364b; border-color: #a39168; }
+button:focus { outline-color: #72d7d5; outline-width: 2px; outline-style: solid; outline-offset: -3px; }
+button:disabled { color: #626f7e; background: #131e2c; border-color: #273140; }
+button.primary { background: #d0b87d; color: #152232; border-color: #e2c990; font-weight: bold; }
+button.primary:hover { background: #e4cd94; }
+button.primary:disabled { background: #564e3c; color: #939083; border-color: #564e3c; }
+button.quiet { background: transparent; border-color: #2b3a4a; color: #b1c0cf; }
+button.danger { background: transparent; border-color: #68424b; color: #e09ca5; }
+button.danger:hover { background: #3b232e; }
+.users { background: transparent; }
+.users row { background: transparent; border: 1px solid transparent; border-radius: 8px; margin: 3px 0; padding: 12px 10px; }
+.users row:selected { background: #203046; border-color: #9c8960; }
+.users row:hover { background: #172738; }
+.user-name { font-size: 14px; font-weight: bold; }
+.avatar { color: #d5bd80; background: #263446; border-radius: 20px; padding: 9px; font-size: 13px; }
+.status { color: #7bd8cd; background: #112e32; border: 1px solid #28504f; border-radius: 14px; padding: 6px 12px; font-size: 11px; }
+.finger { padding: 9px 7px; background: #101c2a; border: 1px solid #2b3a4b; min-height: 64px; }
+.finger .finger-icon { color: #5d758d; font-size: 21px; }
+.finger.enrolled { background: #162a32; border-color: #346466; }
+.finger.enrolled .finger-icon { color: #77d4ca; }
+.finger.selected { background: #293440; border: 2px solid #d6bd80; padding: 8px 6px; }
+.finger-title { font-size: 12px; }
+.finger-state { font-size: 10px; color: #8eabb9; }
+.section { color: #bac6d2; font-size: 10px; font-weight: bold; }
+.detail { border-top: 1px solid #303a47; padding-top: 19px; }
+.notice { color: #99abbb; font-size: 12px; }
+.progress-title { font-family: "Liberation Serif"; font-size: 29px; color: #efdfb7; }
+.dialog-content { background: #101b29; padding: 24px; }
+.dialog { background: #101b29; color: #e6e8e9; }
+progressbar trough { background: #253341; min-height: 5px; border: none; border-radius: 3px; }
+progressbar progress { background: #d0b87d; min-height: 5px; border: none; }
+.success { color: #7cd9c9; }
+.failure { color: #efa7ad; }
+separator { background: #2a3745; min-height: 1px; }
+scrolledwindow { border: none; }
+
+headerbar .title { font-family: "DejaVu Sans"; font-size: 13px; font-weight: bold; }
+headerbar .subtitle { font-size: 10px; }
+.status.offline { color: #c1ad84; background: #26251f; border-color: #514937; }

@@ -1,15 +1,28 @@
 # EutherFPScan
 
 Projekt för att få fingeravtrycksläsaren i en HP ProBook 4340s att fungera
-på Debian 13. Status: en fristående prototyp och lokala kompatibilitetsbibliotek
-finns. Bildöverföringen är testad med syntetiska data; riktig bildinsamling och
-fingeravtrycksregistrering är ännu inte verifierade.
+på Debian 13. Riktig bildinsamling, registrering, rätt/fel finger och
+sudo-autentisering är nu bekräftade på utvecklingsdatorn.
+
+## System Regis IV
+
+Ett svenskt GUI i mörkblått och guld: se användarnas registrerade fingrar,
+lägg till med svepuppmaningar, verifiera och radera enskilda avtryck.
+
+```sh
+python3 tools/install_gui.py
+```
+
+Kör utan sudo och öppna **System Regis IV** i startmenyn.
+Se [användning, behörigheter och tester](docs/regis.md).
+
+## Bakgrund och installation
 
 Den äldre drivrutinen och HP:s originalbinärer är nu granskade.
 Se [portningsbedömning och byggsteg](docs/driver-review.md). Hjälpprogrammets
-C-kod kompilerar, men binärerna kräver äldre bibliotek som saknas på datorn.
+C-kod kompilerar; äldre binärberoenden byggs lokalt.
 
-Vi bygger nu dessa bibliotek lokalt. Se [prototypens bygginstruktioner och
+Se [prototypens bygginstruktioner och
 testresultat](docs/prototype.md). Kör `make test` för tester utan hårdvaruåtkomst.
 
 [Systemd-tjänst och första hårdvarusession](docs/service.md) är förberedda.
@@ -17,11 +30,11 @@ Installera med `sudo bash tools/install_service.sh` från projektmappen.
 Automatisk start aktiveras först när tjänstens interna kommunikation fungerar.
 
 En [libfprint-integration för registrering och verifiering](docs/libfprint.md)
-är nu byggd och testad isolerat. Den kan installeras för fprintd med
-`sudo bash tools/install_fprintd.sh`. Registrering med riktiga svep och tester
-av rätt/fel finger återstår före kopplingen till sudo.
+är byggd och testad med riktiga svep. Den kan installeras för fprintd med
+`sudo bash tools/install_fprintd.sh`. Dokumentationen beskriver även
+registrering och den separata sudo-integrationen.
 
-## Verifierat på utvecklingsdatorn, 2026-09-05
+## Ursprunglig grunddiagnos, 2026-09-05
 
 | Komponent | Resultat |
 | --- | --- |
@@ -33,8 +46,8 @@ av rätt/fel finger återstår före kopplingen till sudo.
 | libfprint-2-2 | `1:1.94.9-1`, installerat |
 | `fprintd-list "$USER"` | `No devices available` |
 
-USB-enheten upptäcks av Linux. Den installerade fingeravtrycksstacken exponerar
-ingen läsare. Modellens USB-ID saknas också i libfprints aktuella lista över
+USB-enheten upptäcktes av Linux. Den ursprungliga fingeravtrycksstacken exponerade
+ingen läsare. Modellens USB-ID saknades också i libfprints lista över
 stödda enheter i utvecklingsversionen, kontrollerad samma datum.
 
 ## Utvecklingsväg
