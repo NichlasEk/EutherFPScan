@@ -1,0 +1,24 @@
+[Unit]
+Description=EutherFPScan isolated Validity VFS491 daemon
+After=systemd-udev-trigger.service
+ConditionPathExists=/opt/eutherfpscan/private/vcsFPService
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/eutherfpscan/tools/service.py --launch
+RuntimeDirectory=eutherfpscan
+RuntimeDirectoryMode=0700
+StateDirectory=eutherfpscan
+StateDirectoryMode=0700
+UMask=0077
+KillMode=control-group
+TimeoutStopSec=5
+Restart=no
+LimitCORE=0
+MemoryMax=256M
+TasksMax=64
+LogRateLimitIntervalSec=30
+LogRateLimitBurst=30
+
+[Install]
+WantedBy=multi-user.target

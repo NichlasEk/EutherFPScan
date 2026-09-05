@@ -12,6 +12,10 @@ C-kod kompilerar, men binärerna kräver äldre bibliotek som saknas på datorn.
 Vi bygger nu dessa bibliotek lokalt. Se [prototypens bygginstruktioner och
 testresultat](docs/prototype.md). Kör `make test` för tester utan hårdvaruåtkomst.
 
+[Systemd-tjänst och första hårdvarusession](docs/service.md) är förberedda.
+Installera med `sudo bash tools/install_service.sh` från projektmappen.
+Automatisk start aktiveras först när tjänstens interna kommunikation fungerar.
+
 ## Verifierat på utvecklingsdatorn, 2026-09-05
 
 | Komponent | Resultat |

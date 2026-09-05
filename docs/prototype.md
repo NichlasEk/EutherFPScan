@@ -78,8 +78,8 @@ Anropsformen för en framtida hårdvarusession är:
 python3 tools/capture.py --output captures/test.pgm -- <isolerad capture-process>
 ```
 
-Detta är avsiktligt en anropsbeskrivning: en launcher med USB-åtkomst och
-samordnad daemon finns inte ännu. Starta inte hjälparen direkt för att
+En launcher med USB-åtkomst och samordnad daemon finns nu förberedd i
+[systemd-tjänsten](service.md). Starta inte hjälparen direkt för att
 kringgå föräldraprocessens timeout.
 
 ## Verifiering och nästa steg
@@ -91,8 +91,7 @@ bygger ett syntetiskt wrapperbibliotek och kör hela C-hjälparen, inklusive
 störande stdout och felaktig bildmetadata. Kompileringen använder
 `-Wall -Wextra -Werror`.
 
-Nästa steg är en separat hårdvarulauncher: ge enbart VFS491:s USB-enhet
-åtkomst, dela privat IPC och `/tmp` mellan daemon och hjälpare, och samla
-begränsade loggar. Daemonens enhetsbehörighet, beteende och eventuella
+Hårdvarulaunchern ger enbart VFS491:s USB-enhet åtkomst och delar privat IPC
+och `/tmp` mellan daemon och hjälpare. Daemonens enhetsbehörighet, beteende och eventuella
 initieringskrav behöver verifieras. Inga `setowner`- eller firmwarekommandon
 ingår i prototypen. En fysisk fingersvepning behövs för den första riktiga bilden.
