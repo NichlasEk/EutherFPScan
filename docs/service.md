@@ -184,12 +184,12 @@ tidigare för att fortsätta rapportera redo.
 
 Tjänsten kontrollerar nu levande, icke-zombie daemonprocesser vid uppstart,
 varje varv i socketloopen (0,5 sekunders accept-timeout) och före ett kommando.
-En pågående insamling har fortfarande sin 35-sekundersgräns; därefter görs
-nästa livskontroll. Försvunnen daemon ger `VFS_DAEMON_GONE` och felstatus,
+Även under insamling kontrolleras daemonen var 0,2 sekund. Insamlingens
+yttersta tidsgräns är fortfarande 35 sekunder. Försvunnen daemon ger `VFS_DAEMON_GONE` och felstatus,
 utan automatisk omstart. Vid insamlingsfel loggas endast vitlistade
 `EUTHER_STAGE`-namn och numeriska `EUTHER_RESULT`, aldrig fria leverantörsloggar
 eller bilddata. Ett processtest verifierar att en kvarlämnad readiness-fil
-inte döljer att daemonen dött. Totalt 22 enhetstester passerar.
+inte döljer att daemonen dött. Totalt 23 enhetstester passerar.
 
 Den granskade kernelloggen visade endast en äldre `fprint-check`-segfault,
 inte en daemonkrasch. Tjänstens cgroup hade noll OOM-händelser. Orsaken till
@@ -197,3 +197,21 @@ daemonens försvinnande är ännu inte fastställd. Uppdatera med
 `sudo bash tools/install_service.sh` och gör ett guidat försök med
 `sudo python3 tools/enroll.py "$USER"`. Granska de nya stegraderna i journalen
 vid fel innan ytterligare försök.
+
+Vid försöket kl. 09:49 lyckades `wait_service`, `set_matcher` och
+`device_init`, alla med returkod 0. Timeouten kom inne i `vfs_capture`, och
+daemonen saknades vid kontrollen efteråt. Den loggen fastställer inte om
+daemonen dog före eller efter att hjälparen dödades vid timeout.
+
+Supervisorn är nu en Linux subreaper, så att den kan läsa exitstatus även
+för daemonens forkade barn. `VFS_DAEMON_EXIT` rapporterar exitkod eller
+signal. `VFS_DAEMON_BEFORE_HELPER_CLEANUP alive=...` visar om daemonen levde
+omedelbart innan hjälparens processgrupp städades. Testerna använder en
+forkad syntetisk daemon med egen session, kontrollerar att `SIGTERM`
+rapporteras och att ett daemonfel avbryter insamling före dess timeout.
+Inga signaler ignoreras eller vendor-anrop ändras av denna diagnostik.
+
+Den [äldre hjälparens källkod](https://github.com/rindeal/libfprint-vfs_proprietary-driver/blob/4f26cc8c51bd61fda9fcac27c9fa37c9ae54bad2/vfs_proprietary/capture-helper/main.c#L126)
+beskriver kommunikationslåsning efter hårt avbruten capture. Det är en möjlig
+förklaring till efterföljande fel, inte ett bevis på orsaken till första timeouten.
+Se även [Linux subreaper-API](https://man7.org/linux/man-pages/man2/PR_SET_CHILD_SUBREAPER.2const.html).

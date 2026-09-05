@@ -16,6 +16,29 @@ def worker(code):
 
 
 class CaptureTests(unittest.TestCase):
+    def test_daemon_failure_interrupts_capture_and_observes_before_cleanup(self):
+        with tempfile.TemporaryDirectory() as folder:
+            pidfile = Path(folder) / "helper.pid"
+            observations = []
+
+            def check():
+                if pidfile.exists():
+                    raise RuntimeError("VFS_DAEMON_GONE")
+
+            def observe():
+                pid = int(pidfile.read_text())
+                os.kill(pid, 0)  # Helper still exists at observation time.
+                observations.append(pid)
+
+            code = ("import os,time; from pathlib import Path; "
+                    f"Path({str(pidfile)!r}).write_text(str(os.getpid())); "
+                    "os.write(2,b'EUTHER_STAGE capture_wait_for_swipe\\n'); time.sleep(10)")
+            with self.assertRaisesRegex(RuntimeError, "VFS_DAEMON_GONE"):
+                collect(worker(code), timeout=2, health_check=check, cleanup_observer=observe)
+            self.assertEqual(len(observations), 1)
+            with self.assertRaises(ProcessLookupError):
+                os.kill(observations[0], 0)
+
     def test_client_disconnect_cancels_helper(self):
         server, client = socket.socketpair()
         client.close()

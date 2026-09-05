@@ -24,7 +24,7 @@ def decode(frame):
     return width, height, frame[12:]
 
 
-def collect(command, timeout=35, cancel_socket=None):
+def collect(command, timeout=35, cancel_socket=None, health_check=None, cleanup_observer=None):
     if not math.isfinite(timeout) or timeout <= 0:
         raise ValueError("Timeout must be positive")
     proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -45,10 +45,16 @@ def collect(command, timeout=35, cancel_socket=None):
             if cancel_socket is not None:
                 sel.register(cancel_socket, selectors.EVENT_READ, None)
             while any(key.data is not None for key in sel.get_map().values()):
+                if health_check is not None:
+                    try:
+                        health_check()
+                    except RuntimeError as exc:
+                        tail = diagnostics[-2048:].decode(errors="replace").strip()
+                        raise RuntimeError(str(exc) + "\n" + tail) from exc
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     raise timeout_error("Capture timed out")
-                for key, _ in sel.select(remaining):
+                for key, _ in sel.select(min(remaining, .2) if health_check else remaining):
                     if key.data is None:
                         if not cancel_socket.recv(1, socket.MSG_PEEK | socket.MSG_DONTWAIT):
                             raise InterruptedError("Capture client disconnected")
@@ -70,6 +76,13 @@ def collect(command, timeout=35, cancel_socket=None):
                 raise RuntimeError(f"Capture exited {code}: " + diagnostics.decode(errors="replace"))
         return decode(frame)
     finally:
+        # Observe before terminating the helper, so a daemon failure caused by
+        # loss of its client can be distinguished from an earlier failure.
+        if cleanup_observer is not None:
+            try:
+                cleanup_observer()
+            except Exception:
+                pass  # Diagnostics must never prevent mandatory cleanup.
         # Also terminate descendants retaining pipes after the helper exits.
         try:
             os.killpg(proc.pid, signal.SIGKILL)

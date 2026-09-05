@@ -182,6 +182,8 @@ class ServiceTests(unittest.TestCase):
             daemon = root / "private/vcsFPService"
             daemon.write_text("#!/usr/bin/python3\nfrom pathlib import Path\n"
                               "import ctypes, os, time\n"
+                              "if os.fork(): os._exit(0)\n"
+                              "os.setsid()\n"
                               "ctypes.CDLL(None).prctl(15, b'vcsFPService', 0, 0, 0)\n"
                               f"Path({str(root / 'daemon.pid')!r}).write_text(str(os.getpid()))\n"
                               f"Path({str(ready)!r}).touch()\n"
@@ -197,7 +199,7 @@ class ServiceTests(unittest.TestCase):
                     f"service.SYSLOG=Path({str(root / 'syslog')!r}); "
                     f"service.READY=Path({str(ready)!r}); service.serve()")
             proc = subprocess.Popen([sys.executable, "-c", code],
-                                    stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                     start_new_session=True)
             try:
                 deadline = time.monotonic() + 5
@@ -225,6 +227,7 @@ class ServiceTests(unittest.TestCase):
                 self.assertTrue(ready.exists())
                 self.assertNotEqual(proc.wait(timeout=3), 0)
                 self.assertIn(b"VFS_DAEMON_GONE", proc.stderr.read())
+                self.assertIn(b"signal=SIGTERM", proc.stdout.read())
             finally:
                 try:
                     os.killpg(proc.pid, signal.SIGKILL)
@@ -232,3 +235,10 @@ class ServiceTests(unittest.TestCase):
                     pass
                 proc.wait()
                 proc.stderr.close()
+                proc.stdout.close()
+                # The fixture daemon has its own session, like the vendor.
+                if (root / 'daemon.pid').exists():
+                    try:
+                        os.kill(int((root / 'daemon.pid').read_text()), signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass

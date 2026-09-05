@@ -1,6 +1,7 @@
 """Isolated VFS daemon and serialized capture socket. No enrollment or firmware tools."""
 import argparse
 from collections import deque
+import ctypes
 import os
 from pathlib import Path
 import re
@@ -42,9 +43,46 @@ def daemon_pids(proc=Path("/proc")):
     return sorted(found)
 
 
-def require_daemon():
-    if not daemon_pids():
-        raise RuntimeError("VFS_DAEMON_GONE: no live vcsFPService; readiness marker is insufficient")
+def adopt_daemon_children():
+    # Receive exit status of the vendor's daemonized child rather than losing
+    # it to bubblewrap's PID-namespace init. No privileges are added.
+    libc = ctypes.CDLL(None, use_errno=True)
+    libc.prctl.argtypes = [ctypes.c_int] + [ctypes.c_ulong] * 4
+    if libc.prctl(36, 1, 0, 0, 0) != 0:  # PR_SET_CHILD_SUBREAPER
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error))
+
+
+class DaemonMonitor:
+    def __init__(self, parent):
+        self.parent = parent
+        self.pids = set(daemon_pids())
+
+    def check(self):
+        live = daemon_pids()
+        for pid in list(self.pids):
+            if pid == self.parent.pid:
+                code = self.parent.poll()
+                if code is None:
+                    continue
+            else:
+                try:
+                    waited, status = os.waitpid(pid, os.WNOHANG)
+                except ChildProcessError:
+                    continue
+                if not waited:
+                    continue
+                code = os.waitstatus_to_exitcode(status)
+            self.pids.remove(pid)
+            reason = f"signal={signal.Signals(-code).name}" if code < 0 else f"code={code}"
+            print(f"VFS_DAEMON_EXIT pid={pid} {reason}", flush=True)
+        if not live:
+            raise RuntimeError("VFS_DAEMON_GONE: no live vcsFPService; readiness marker is insufficient")
+
+    def before_cleanup(self):
+        print("VFS_DAEMON_BEFORE_HELPER_CLEANUP alive=" +
+              ",".join(map(str, daemon_pids())), flush=True)
+        self.check()
 
 
 def helper_failure_summary(error):
@@ -265,6 +303,7 @@ def serve_with_log(startup_log):
 
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
+    adopt_daemon_children()
     daemon = subprocess.Popen([str(BASE / "private/vcsFPService")])
     # The vendor daemon may fork. IPC marker confirms service initialization,
     # not sensor readiness; the first actual capture is the hardware check.
@@ -277,6 +316,7 @@ def serve_with_log(startup_log):
             raise RuntimeError(f"VFS daemon exited {daemon.returncode}")
         time.sleep(.1)
     print("VFS_DAEMON_ALIVE: " + ",".join(map(str, daemon_pids())), flush=True)
+    monitor = DaemonMonitor(daemon)
     startup_log.ready()
     Path(SOCKET).unlink(missing_ok=True)
     with socket.socket(socket.AF_UNIX) as server:
@@ -286,7 +326,7 @@ def serve_with_log(startup_log):
         server.settimeout(.5)
         print("IPC_READY: daemon initialized; sensor capture remains unverified", flush=True)
         while not stopped:
-            require_daemon()
+            monitor.check()
             try:
                 connection, _ = server.accept()
             except TimeoutError:
@@ -296,14 +336,16 @@ def serve_with_log(startup_log):
                 try:
                     # Fixed one-byte commands avoid framing ambiguity.
                     command = connection.recv(1)
-                    require_daemon()
+                    monitor.check()
                     if command == b"S":
                         connection.sendall(b"IPC_READY; hardware capture not implied\n")
                     elif command == b"C":
                         print("Capture requested (35 second deadline)", flush=True)
                         w, h, data = collect([str(BASE / "bin/euther-capture"), "--capture",
                                               str(BASE / "private/libvfsFprintWrapper.so")],
-                                             cancel_socket=connection)
+                                             cancel_socket=connection,
+                                             health_check=monitor.check,
+                                             cleanup_observer=monitor.before_cleanup)
                         connection.sendall(struct.pack("!4sII", b"EFP1", w, h) + data)
                         print(f"Capture complete: {w} x {h}", flush=True)
                     else:
