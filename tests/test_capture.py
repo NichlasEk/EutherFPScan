@@ -1,4 +1,5 @@
 import os
+import socket
 from pathlib import Path
 import struct
 import subprocess
@@ -15,6 +16,12 @@ def worker(code):
 
 
 class CaptureTests(unittest.TestCase):
+    def test_client_disconnect_cancels_helper(self):
+        server, client = socket.socketpair()
+        client.close()
+        with server, self.assertRaisesRegex(InterruptedError, "client disconnected"):
+            collect(worker("import time; time.sleep(5)"), timeout=1, cancel_socket=server)
+
     def test_c_helper_with_synthetic_wrapper(self):
         with tempfile.TemporaryDirectory() as directory:
             lib = str(Path(directory) / "mock.so")

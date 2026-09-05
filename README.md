@@ -16,6 +16,11 @@ testresultat](docs/prototype.md). Kör `make test` för tester utan hårdvaruåt
 Installera med `sudo bash tools/install_service.sh` från projektmappen.
 Automatisk start aktiveras först när tjänstens interna kommunikation fungerar.
 
+En [libfprint-integration för registrering och verifiering](docs/libfprint.md)
+är nu byggd och testad isolerat. Den kan installeras för fprintd med
+`sudo bash tools/install_fprintd.sh`. Registrering med riktiga svep och tester
+av rätt/fel finger återstår före kopplingen till sudo.
+
 ## Verifierat på utvecklingsdatorn, 2026-09-05
 
 | Komponent | Resultat |

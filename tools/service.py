@@ -98,7 +98,8 @@ def serve():
                     elif command == b"C":
                         print("Capture requested (35 second deadline)", flush=True)
                         w, h, data = collect([str(BASE / "bin/euther-capture"), "--capture",
-                                              str(BASE / "private/libvfsFprintWrapper.so")])
+                                              str(BASE / "private/libvfsFprintWrapper.so")],
+                                             cancel_socket=connection)
                         connection.sendall(struct.pack("!4sII", b"EFP1", w, h) + data)
                         print(f"Capture complete: {w} x {h}", flush=True)
                     else:

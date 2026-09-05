@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import selectors
 import signal
+import socket
 import struct
 import subprocess
 import time
@@ -23,7 +24,7 @@ def decode(frame):
     return width, height, frame[12:]
 
 
-def collect(command, timeout=35):
+def collect(command, timeout=35, cancel_socket=None):
     if not math.isfinite(timeout) or timeout <= 0:
         raise ValueError("Timeout must be positive")
     proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -41,11 +42,17 @@ def collect(command, timeout=35):
         with selectors.DefaultSelector() as sel:
             sel.register(proc.stdout, selectors.EVENT_READ, frame)
             sel.register(proc.stderr, selectors.EVENT_READ, diagnostics)
-            while sel.get_map():
+            if cancel_socket is not None:
+                sel.register(cancel_socket, selectors.EVENT_READ, None)
+            while any(key.data is not None for key in sel.get_map().values()):
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     raise timeout_error("Capture timed out")
                 for key, _ in sel.select(remaining):
+                    if key.data is None:
+                        if not cancel_socket.recv(1, socket.MSG_PEEK | socket.MSG_DONTWAIT):
+                            raise InterruptedError("Capture client disconnected")
+                        raise ValueError("Unexpected data during capture")
                     block = os.read(key.fd, 65536)
                     if not block:
                         sel.unregister(key.fileobj)
