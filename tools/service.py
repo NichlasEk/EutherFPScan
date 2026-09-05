@@ -53,6 +53,16 @@ def adopt_daemon_children():
         raise OSError(error, os.strerror(error))
 
 
+def start_vendor_daemon(command):
+    # Python ignores SIGPIPE, but Popen normally resets it before exec.
+    # Keep it ignored for this legacy daemon: writes to disconnected peers
+    # must return EPIPE instead of terminating the entire sensor service.
+    # The helper and all other subprocesses retain their existing policy.
+    if signal.getsignal(signal.SIGPIPE) != signal.SIG_IGN:
+        raise RuntimeError("Expected SIGPIPE ignored in the Python supervisor")
+    return subprocess.Popen(command, restore_signals=False)
+
+
 class DaemonMonitor:
     def __init__(self, parent):
         self.parent = parent
@@ -304,7 +314,7 @@ def serve_with_log(startup_log):
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     adopt_daemon_children()
-    daemon = subprocess.Popen([str(BASE / "private/vcsFPService")])
+    daemon = start_vendor_daemon([str(BASE / "private/vcsFPService")])
     # The vendor daemon may fork. IPC marker confirms service initialization,
     # not sensor readiness; the first actual capture is the hardware check.
     deadline = time.monotonic() + 15

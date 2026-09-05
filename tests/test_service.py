@@ -17,6 +17,21 @@ from tools.service import StartupLog, UsbMirror, usb_node, usb_mount_args
 
 
 class ServiceTests(unittest.TestCase):
+    def test_vendor_survives_broken_pipe_but_write_still_fails(self):
+        with tempfile.TemporaryDirectory() as folder:
+            binary = str(Path(folder) / "broken-pipe")
+            subprocess.run(["cc", "-Wall", "-Wextra", "-Werror",
+                            "tests/broken_pipe.c", "-o", binary], check=True)
+            baseline = subprocess.run([binary], capture_output=True, timeout=3)
+            self.assertEqual(baseline.returncode, -signal.SIGPIPE)
+            process = service.start_vendor_daemon([binary])
+            try:
+                self.assertEqual(process.wait(timeout=3), 0)
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                process.wait()
+
     def test_daemon_detection_rejects_zombies_and_unrelated_processes(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)

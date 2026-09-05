@@ -189,7 +189,7 @@ yttersta tidsgräns är fortfarande 35 sekunder. Försvunnen daemon ger `VFS_DAE
 utan automatisk omstart. Vid insamlingsfel loggas endast vitlistade
 `EUTHER_STAGE`-namn och numeriska `EUTHER_RESULT`, aldrig fria leverantörsloggar
 eller bilddata. Ett processtest verifierar att en kvarlämnad readiness-fil
-inte döljer att daemonen dött. Totalt 23 enhetstester passerar.
+inte döljer att daemonen dött. Totalt 24 enhetstester passerar.
 
 Den granskade kernelloggen visade endast en äldre `fprint-check`-segfault,
 inte en daemonkrasch. Tjänstens cgroup hade noll OOM-händelser. Orsaken till
@@ -209,9 +209,36 @@ signal. `VFS_DAEMON_BEFORE_HELPER_CLEANUP alive=...` visar om daemonen levde
 omedelbart innan hjälparens processgrupp städades. Testerna använder en
 forkad syntetisk daemon med egen session, kontrollerar att `SIGTERM`
 rapporteras och att ett daemonfel avbryter insamling före dess timeout.
-Inga signaler ignoreras eller vendor-anrop ändras av denna diagnostik.
+Denna diagnostik ändrade inte signalhantering eller vendor-anrop; efterföljande
+SIGPIPE-resultat och åtgärd beskrivs nedan.
 
 Den [äldre hjälparens källkod](https://github.com/rindeal/libfprint-vfs_proprietary-driver/blob/4f26cc8c51bd61fda9fcac27c9fa37c9ae54bad2/vfs_proprietary/capture-helper/main.c#L126)
 beskriver kommunikationslåsning efter hårt avbruten capture. Det är en möjlig
 förklaring till efterföljande fel, inte ett bevis på orsaken till första timeouten.
 Se även [Linux subreaper-API](https://man7.org/linux/man-pages/man2/PR_SET_CHILD_SUBREAPER.2const.html).
+
+## Bekräftad SIGPIPE under capture
+
+Kl. 09:56:10 rapporterade den adopterade daemonen `signal=SIGPIPE`, cirka två
+sekunder efter capture-start. Före hjälparstädning var daemonen redan borta.
+`wait_service`, `set_matcher` och `device_init` hade returnerat 0. Det bekräftar
+att den observerade processdöden föregick timeout och hjälparstädning.
+Vilken anslutning som bröts är ännu inte fastställt.
+
+Starten av enbart `vcsFPService` använder nu `restore_signals=False`, med en
+kontroll att Python-supervisorn ignorerar SIGPIPE. Därmed överlever daemonen
+signalen och skrivningen kan returnera `EPIPE`. Detta ändrar inte ett
+misslyckat skrivresultat till framgång. Timeout, processövervakning och
+bildvalidering gäller fortfarande. Andra subprocesser använder tidigare
+signalpolicy. Flaggan bevarar även Pythons övriga ignorerade signaler, såsom
+SIGXFSZ, i daemonen; kärnans resursgränser ändras inte.
+
+Ett kompilerat C-test dör av SIGPIPE med standardstarten men får EPIPE och
+överlever med den nya daemonstarten. Detta testar exec-arvet; ett Pythonbarn
+vore otillräckligt eftersom Python själv ignorerar SIGPIPE. Ändringen har
+ännu inte verifierats med riktiga fingersvep och löser inte bevisligen orsaken
+till den brutna anslutningen. Ingen skillnad i signalpolicy har belagts mot
+den tidigare lyckade bildinsamlingen; detta är en ny kompatibilitetsåtgärd.
+
+Referenser: [Pythons restore_signals](https://docs.python.org/3/library/subprocess.html#subprocess.Popen),
+[Linux signalhantering](https://man7.org/linux/man-pages/man7/signal.7.html).
