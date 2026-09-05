@@ -13,7 +13,9 @@ python3 tools/install_gui.py
 
 Öppna **System Regis IV** i startmenyn. Installationen ligger i
 `~/.local/share/system-regis-iv`, med en startmenypost i
-`~/.local/share/applications/system-regis-iv.desktop`.
+`~/.local/share/applications/se.euther.SystemRegisIV.desktop`.
+Appikonen installeras i användarens hicolor-ikontema. Startmenypostens namn
+matchar appens Wayland-ID så att aktivitetsfältet visar Regis-sigillet.
 Kör installationskommandot igen efter uppdateringar av projektet.
 Från källkoden kan appen startas med `python3 tools/regis.py`.
 

@@ -360,6 +360,10 @@ class App(Gtk.Application):
 
 def main():
     import argparse
+    GLib.set_prgname('se.euther.SystemRegisIV')
+    GLib.set_application_name('System Regis IV')
+    Gdk.set_program_class('se.euther.SystemRegisIV')
+    Gtk.Window.set_default_icon_name('se.euther.SystemRegisIV')
     parser = argparse.ArgumentParser(description='System Regis IV — fingeravtrycksregistret')
     parser.add_argument('--preview', metavar='PNG', help='Render an explicitly marked sample, without fprintd access')
     args = parser.parse_args()

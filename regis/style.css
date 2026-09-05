@@ -50,4 +50,18 @@ scrolledwindow { border: none; }
 
 headerbar .title { font-family: "DejaVu Sans"; font-size: 13px; font-weight: bold; }
 headerbar .subtitle { font-size: 10px; }
+/* Keep native window controls compact. The general button background rule
+   otherwise resets Breeze's SVG background size, including on hover. */
+window.regis headerbar.titlebar { min-height: 34px; }
+window.regis headerbar button.titlebutton {
+  min-width: 18px; min-height: 18px; padding: 6px; margin: 0 2px;
+  background-size: 18px 18px; background-position: center;
+  background-repeat: no-repeat; border-width: 1px;
+}
+window.regis headerbar button.titlebutton image { opacity: 0; }
+window.regis headerbar button.titlebutton.close { background-image: url("assets/window-close.svg"); }
+window.regis headerbar button.titlebutton.minimize { background-image: url("assets/window-minimize.svg"); }
+window.regis headerbar button.titlebutton.maximize { background-image: url("assets/window-maximize.svg"); }
+window.regis.maximized headerbar button.titlebutton.maximize { background-image: url("assets/window-restore.svg"); }
+window.regis headerbar button.titlebutton.close:hover { background-color: #59313c; border-color: #b87481; }
 .status.offline { color: #c1ad84; background: #26251f; border-color: #514937; }
