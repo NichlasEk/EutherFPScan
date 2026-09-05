@@ -53,7 +53,9 @@ inte kalibrerad. Lägg bilder i `captures/`, som ignoreras av Git. `private/`,
 
 Tjänsten identifierar exakt en USB-enhet med `138a:003d` vid start. En
 värdprocess följer sysfs var 100 ms och underhåller en filtrerad katalog med
-läsarens aktuella USB-enhetsnod under `/run/eutherfpscan/usb`. Obsoleta noder
+läsarens aktuella USB-enhetsnod under `/dev/eutherfpscan-usb-*/usb` i en
+slumpnamngiven privat katalog med rättighet `0700`. `/dev` tillåter
+enhetsåtkomst; `/run` har `nodev` och får inte användas som källa. Obsoleta noder
 tas bort innan ersättare läggs till. Katalogen exponeras med `--dev-bind` som
 sandboxens `/dev/bus/usb`, med enhetsåtkomst tillåten. Den katalogvägen är
 skrivbar; processens capabilities tas uttryckligen bort med `--cap-drop ALL`
@@ -63,6 +65,9 @@ IPC och `/tmp`; nätverk, processnamnrymd och övriga USB-enheter är isolerade.
 Sysfs är läsbart för enhetsupptäckt. Privat leverantörstillstånd ligger i
 `/var/lib/eutherfpscan/etc` och exponeras som sandboxens `/etc`.
 Kontrollsocketen under `/run/eutherfpscan` är endast åtkomlig för root.
+Den tillfälliga spegelkatalogen tas bort vid normalt avslut och hanterade
+uppstartsfel. Ett SIGKILL kan lämna katalogen kvar till nästa uppbootning;
+nya starter återanvänder aldrig en gammal katalog.
 
 Systemd stoppar hela processgruppen, och sandboxens PID-namnrymd tar hand
 om forkade daemonprocesser. Vid omstart av datorn startas endast daemonen;
@@ -144,8 +149,13 @@ samma rättigheter och mount-argument som tjänsten. Noderna är kopior av
 `/dev/null` (1:3), aldrig USB-enheter. Resultatet visar mount-flaggor,
 rättigheter och öppningsfel inifrån sandboxen. Tillfälliga filer tas bort
 vid normal avslutning och hanterade fel. Ingen tjänst startas om.
-Agenten kan inte köra detta root-test utan användarens sudo-session.
-Byte av spegelplats är ännu inte genomfört eller verifierat på hårdvaran.
+Användarens root-test bekräftade att `/run` gav `EACCES` och att `/dev`
+gav `open: OK`, båda med uid 0, nodrättighet `0600` och inga capabilities.
+Mount-informationen visade `nodev` på den första enhetsmounten men inte på
+den andra. Tjänstens spegel har därför flyttats till en temporär privat
+katalog under `/dev`, med samma mount-argument som i diagnostiken.
+Städning vid normalt avslut och uppstartsfel testas automatiskt.
+Installation och ny daemonstart med den riktiga läsaren återstår.
 
 ## Diagnostik efter första timeouten
 

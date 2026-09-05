@@ -9,12 +9,44 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 from tools.capture import decode
+from tools import service
 from tools.service import StartupLog, UsbMirror, usb_node, usb_mount_args
 
 
 class ServiceTests(unittest.TestCase):
+    def test_launch_cleans_private_usb_directory_on_exit_and_startup_failure(self):
+        real_temporary_directory = tempfile.TemporaryDirectory
+        for fail in (False, True):
+            with self.subTest(startup_failure=fail):
+                roots = []
+
+                def temporary_directory(*, prefix, dir):
+                    self.assertEqual(dir, "/dev")
+                    # The unit test cannot create host device nodes as root.
+                    return real_temporary_directory(prefix=prefix)
+
+                def run(root):
+                    roots.append(root.parent)
+                    self.assertEqual(stat.S_IMODE(root.parent.stat().st_mode), 0o700)
+                    mirror = UsbMirror(root, make_node=lambda path, mode, dev: path.touch())
+                    mirror.sync({"003/006": os.makedev(1, 3)})
+                    if fail:
+                        raise RuntimeError("synthetic startup failure")
+
+                with patch.object(service, "usb_node", return_value="/unused"), \
+                     patch.object(service.tempfile, "TemporaryDirectory", temporary_directory), \
+                     patch.object(service, "launch_with_usb", run):
+                    if fail:
+                        with self.assertRaisesRegex(RuntimeError, "synthetic startup failure"):
+                            service.launch()
+                    else:
+                        service.launch()
+                self.assertEqual(len(roots), 1)
+                self.assertFalse(roots[0].exists())
+
     def test_vendor_log_discards_messages_after_startup(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "syslog"

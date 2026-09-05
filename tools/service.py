@@ -9,6 +9,7 @@ import socket
 import struct
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 
@@ -157,7 +158,15 @@ def usb_mount_args(source):
 def launch():
     # Validate uniqueness before starting any vendor process.
     usb_node()
-    mirror = UsbMirror("/run/eutherfpscan/usb")
+    # /run is nodev on Debian: --dev-bind preserves that restriction.
+    # Use a private 0700 directory on devtmpfs, where device opens work.
+    # The context also removes the mirror if startup fails before Popen.
+    with tempfile.TemporaryDirectory(prefix="eutherfpscan-usb-", dir="/dev") as folder:
+        launch_with_usb(Path(folder) / "usb")
+
+
+def launch_with_usb(root):
+    mirror = UsbMirror(root)
     mirror.sync(current_usb_nodes())
     os.makedirs("/var/lib/eutherfpscan/etc", mode=0o700, exist_ok=True)
     command = [
