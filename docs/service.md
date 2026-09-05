@@ -1,7 +1,8 @@
 # Automatisk start och hårdvarusession
 
-Status: tjänst och installationsskript är förberedda och testade med syntetisk
-hårdvara. Installation och riktig USB-insamling väntar på lokal sudo-körning.
+Status: tjänsten är installerad, aktiv och aktiverad vid uppbootning, verifierat
+2026-09-05. Första riktiga insamlingsförsöket nådde tjänsten men gav timeout.
+En fungerande bild är ännu inte verifierad.
 Ingen inloggningsintegration eller automatisk insamling ingår.
 
 ## Installera
@@ -83,5 +84,19 @@ fprintd eller Debian-systembiblioteken görs av installationen.
 - Leverantörsdaemonen startades i en separat sandbox utan USB; det gav
   uppstartsmeddelande och vissa IPC-filer men ingen färdig readiness-markör.
   Det är inte ett lyckat hårdvarutest.
-- `sudo -n true` kräver lösenord på datorn. Ingen systeminstallation eller
-  aktivering av automatisk start har därför utförts av agenten.
+- Användaren installerade tjänsten med sudo. Agenten verifierade därefter
+  `active` och `enabled`; agentens sudo-session kräver fortfarande lösenord.
+
+## Diagnostik efter första timeouten
+
+Första försöket gav `ERROR: Capture timed out`. Den då installerade versionen
+bevarade inte stderr vid timeout, så felet säger inte vilket steg som fastnade.
+Hjälparen skriver nu `EUTHER_STAGE` före varje leverantörsanrop och
+`EUTHER_RESULT` efter initierings- och capture-anrop. Föräldern inkluderar de
+senaste 2048 diagnostikbyten i timeoutsvaret, aldrig bilddata.
+
+Uppdatera med `sudo bash tools/install_service.sh` och gör sedan ett nytt
+insamlingsförsök enligt ovan. Installationen startar om den gamla daemonen
+så nästa försök får en ny IPC-session. Rapportera sista `EUTHER_STAGE` och
+eventuella returkoder. `capture_wait_for_swipe` betyder att capture-funktionen
+anropades; det bevisar inte ensamt att hårdvaran är redo.

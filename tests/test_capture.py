@@ -25,6 +25,10 @@ class CaptureTests(unittest.TestCase):
             with patch.dict(os.environ, {"MOCK_BAD": "1"}):
                 with self.assertRaisesRegex(RuntimeError, "Invalid image metadata"):
                     collect(command)
+            for stage in ("device_init", "capture_wait_for_swipe", "clean_handles"):
+                with self.subTest(stage=stage), patch.dict(os.environ, {"MOCK_HANG": stage}):
+                    with self.assertRaisesRegex(TimeoutError, "EUTHER_STAGE " + stage):
+                        collect(command, timeout=.3)
 
     def test_partial_delivery(self):
         code = "import os,time; data=b'EFP1'+bytes.fromhex('0000000200000002')+b'abcd'; " \

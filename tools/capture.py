@@ -30,6 +30,13 @@ def collect(command, timeout=35):
                             start_new_session=True)
     frame, diagnostics = bytearray(), bytearray()
     deadline = time.monotonic() + timeout
+
+    def timeout_error(message):
+        # Preserve the most recent diagnostics, including the last entered
+        # vendor call. Image bytes are never included in the error.
+        tail = diagnostics[-2048:].decode(errors="replace").strip()
+        return TimeoutError(message + ("\nHelper diagnostics:\n" + tail if tail else ""))
+
     try:
         with selectors.DefaultSelector() as sel:
             sel.register(proc.stdout, selectors.EVENT_READ, frame)
@@ -37,7 +44,7 @@ def collect(command, timeout=35):
             while sel.get_map():
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
-                    raise TimeoutError("Capture timed out")
+                    raise timeout_error("Capture timed out")
                 for key, _ in sel.select(remaining):
                     block = os.read(key.fd, 65536)
                     if not block:
@@ -51,7 +58,7 @@ def collect(command, timeout=35):
             try:
                 code = proc.wait(timeout=max(0.001, deadline - time.monotonic()))
             except subprocess.TimeoutExpired as exc:
-                raise TimeoutError("Capture cleanup timed out") from exc
+                raise timeout_error("Capture cleanup timed out") from exc
             if code:
                 raise RuntimeError(f"Capture exited {code}: " + diagnostics.decode(errors="replace"))
         return decode(frame)

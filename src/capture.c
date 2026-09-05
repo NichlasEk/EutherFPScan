@@ -15,6 +15,12 @@
 struct vfs_data { void *ctx, *image, *enroll; };
 static int output_fd;
 
+static void stage(const char *name)
+{
+    fprintf(stderr, "EUTHER_STAGE %s\n", name);
+    fflush(stderr);
+}
+
 static void *symbol(void *lib, const char *name)
 {
     void *p = dlsym(lib, name);
@@ -47,6 +53,7 @@ int main(int argc, char **argv)
     /* Vendor library has unresolved optional matcher symbols. Strict probe
      * exposes these; lazy mode matches the legacy helper's binding behavior. */
     int binding = !strcmp(argv[1], "--probe") ? RTLD_NOW : RTLD_LAZY;
+    stage("load_wrapper");
     void *lib = dlopen(argv[2], binding | RTLD_LOCAL);
     if (!lib) { fprintf(stderr, "%s\n", dlerror()); return 2; }
     int (*wait_service)(void) = symbol(lib, "vfs_wait_for_service");
@@ -67,13 +74,24 @@ int main(int argc, char **argv)
         return 0;
     }
     struct vfs_data dev = {0};
-    if (wait_service() != 0 || matcher(3) != 0 || init(&dev) != 0) {
-        fprintf(stderr, "VFS initialization failed\n");
-        return 3;
-    }
+    int status;
+#define INIT_CALL(name, expression) do { \
+    stage(name); \
+    status = (expression); \
+    fprintf(stderr, "EUTHER_RESULT %s %d\n", name, status); \
+    if (status != 0) return 3; \
+} while (0)
+    INIT_CALL("wait_service", wait_service());
+    INIT_CALL("set_matcher", matcher(3));
+    INIT_CALL("device_init", init(&dev));
+#undef INIT_CALL
     int result = 3;
     unsigned char *pixels = NULL;
-    if (capture(&dev, 1) != 1) goto cleanup;
+    stage("capture_wait_for_swipe");
+    status = capture(&dev, 1);
+    fprintf(stderr, "EUTHER_RESULT capture %d\n", status);
+    if (status != 1) goto cleanup;
+    stage("read_image");
     int w = width(&dev), h = height(&dev), n = length(&dev);
     pixels = data(&dev);
     if (!pixels || w <= 0 || h <= 0 || w > 2048 || h > 2048 ||
@@ -85,9 +103,13 @@ int main(int argc, char **argv)
     if (!send_all("EFP1", 4) && !send_all(dims, sizeof(dims)) &&
         !send_all(pixels, (size_t)n)) result = 0;
 cleanup:
+    stage("free_image");
     if (pixels) free_data(pixels);
+    stage("clean_handles");
     clean(&dev);
+    stage("device_exit");
     dev_exit(&dev);
+    stage("unload_wrapper");
     dlclose(lib);
     close(output_fd);
     return result;
