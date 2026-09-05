@@ -2,7 +2,8 @@
 
 Den nya bilddrivrutinen `euther_vfs491` är byggd mot libfprint 1.94.9 och
 testad isolerat och med riktiga svep. Registrering, rätt/fel finger och ny
-verifiering efter avbrott har lyckats. Sudo-aktivering återstår enligt nedan.
+verifiering efter avbrott har lyckats. Sudo är aktiverat och ett nytt
+`sudo whoami` efter `sudo -k` gav `root` efter fingersvep 2026-09-05.
 
 ## Bygg och verifiera
 
@@ -132,8 +133,15 @@ Hårdvaruproven har nu lyckats: höger pekfinger är registrerat, rätt finger
 gav `verify-match`, ett annat finger gav `verify-no-match`, och användarens
 nya verifiering efter agentens Ctrl+C-prov gav `verify-match`.
 
-Sudo-installationen är förberedd men ännu inte aktiverad. Förhandsgranska,
-aktivera och prova i användarens synliga terminal:
+Sudo-installationen är aktiverad. Användaren verifierade `sudo -k` följt av
+`sudo whoami`: svensk uppmaning om höger pekfinger och därefter `root`.
+Den installerade `/etc/pam.d/sudo` har också lästs tillbaka och innehåller
+den avsedda regeln. Lösenordsfallback finns konfigurerad och är testad med
+syntetiska PAM-resultat; ett verkligt lösenordsprov efter timeout samt sudo
+från agentens terminal är ännu inte bekräftade.
+
+Förhandsgranska, aktivera och prova vid en ny installation i användarens
+synliga terminal:
 
 ```sh
 python3 tools/install_sudo.py
