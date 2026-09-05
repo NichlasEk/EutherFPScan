@@ -11,6 +11,7 @@ make test
 python3 tools/build_libfprint.py
 python3 tools/test_libfprint.py
 python3 tools/check_fprintd.py
+python3 tools/test_enroll_dbus.py
 ```
 
 Byggskriptet hämtar Debians libfprint-källa med fast SHA-256. Utvecklingspaket
@@ -35,15 +36,33 @@ Kör från projektmappen:
 
 ```sh
 sudo bash tools/install_fprintd.sh
-sudo fprintd-enroll -f right-index-finger "$USER"
+sudo python3 tools/enroll.py "$USER"
 ```
 
 Installationen uppdaterar och startar om bildtjänsten, installerar vårt
 libfprint i `/opt/eutherfpscan/fprint` och lägger till en systemd-drop-in för
 fprintd. Bara fprintd får den privata bibliotekssökvägen och socketadressen.
-Vänta på instruktionen och svep höger pekfinger fem gånger vid registreringen;
-vid dålig kvalitet kan fler svep krävas. Avsluta med Ctrl+C vid upprepade fel
-och granska resultatet före nya försök.
+Guiden använder Debians Python/Gio (`python3-gi`) och ansluter direkt till
+fprintd. Tryck Enter när du är redo. Svep höger pekfinger **en gång per
+uppmaning**, lyft fingret helt och vänta på nästa besked. Antalet moment läses
+från fprintd; på denna dator rapporteras sex, inklusive dubblettkontrollen
+före de fem registreringsstegen. Vid dålig kvalitet kan omsvep krävas.
+Uppmaningar följer `finger-needed` och `EnrollStatus`; guiden pausar inte
+tjänstens insamling mellan momenten. Ctrl+C stoppar registreringen och
+släpper enheten. Bara `enroll-completed` räknas som lyckat slutresultat.
+
+Guiden körs från projektmappen och kräver ingen ny tjänsteinstallation.
+Den hanterar inga bildfiler eller mallar; lagringen sköts av fprintd.
+
+Senaste hårdvarutestet 2026-09-05 kl. 09:09 bekräftade `USB_OPEN_OK` och
+`IPC_READY`, men första insamlingen fick timeout efter 35 sekunder under
+fprintds kontroll inför registrering. Orsaken till utebliven bild är ännu
+inte fastställd. Det är inte bevis på fel finger eller fel svepteknik.
+Vid nytt fel ska resultat och följande logg granskas före nästa försök:
+
+```sh
+sudo journalctl -u eutherfpscan -u fprintd -n 30 --no-pager
+```
 
 När registreringen lyckas:
 
@@ -91,7 +110,10 @@ koppling till systemets root-körda fprintd eller sudo.
 
 ## Genomförda tester
 
-- Elva tester för hjälpare, sockettjänst och avbrott.
+- Tjugo enhetstester för hjälpare, sockettjänst, avbrott och guidens steg.
+- Guiden testas på privat D-Bus med syntetiska status- och egenskapssignaler:
+  sex moment, terminalt fel och Ctrl+C. Både `EnrollStop` och `Release`
+  kontrolleras. Dessa tester använder ingen läsare eller fingeravtrycksmall.
 - Fyra integrationstester genom det byggda libfprint: bildinsamling;
   femstegsregistrering, serialisering/återläsning, träff och utebliven träff;
   avbrott; felaktiga/trunkerade svar och extra data.
@@ -123,4 +145,5 @@ sudo systemctl restart fprintd
 Detta tar inte bort registrerade mallar eller privata bilder.
 
 Källor: [libfprints interna bild-API](https://fprint.freedesktop.org/libfprint-dev/libfprint-2-Internal-FpImageDevice.html),
+[fprintds status- och egenskapssignaler](https://fprint.freedesktop.org/fprintd-dev/Device.html),
 [Debians pam_fprintd](https://manpages.debian.org/trixie/libpam-fprintd/pam_fprintd.8.en.html).

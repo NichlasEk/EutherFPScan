@@ -38,4 +38,5 @@ if 'EutherFPScan Validity VFS491' not in name:
 print('fprintd device confirmed: EutherFPScan Validity VFS491')
 PY
 echo 'fprintd integration installed. PAM/sudo authentication has not been changed.'
-echo 'Next: enroll five live swipes, then test correct finger, wrong finger and cancellation.'
+echo 'Next: sudo python3 tools/enroll.py "$USER" for guided live swipes.'
+echo 'After enrollment, test correct finger, wrong finger and cancellation.'
