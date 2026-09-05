@@ -126,6 +126,27 @@ Raden `sensor temporarily absent` kl. 08:53:29 kom från den gamla
 städningsloggningen, inte från observerad frånkoppling. Städningen loggas nu
 uttryckligen som `cleared during shutdown`.
 
+## Åtkomst nekad före daemonstart kl. 08:59
+
+Den senaste starten misslyckades redan i öppningskontrollen med `EACCES`.
+På värden är `/run` monterad med `nodev`, medan `/dev` saknar den flaggan.
+Spegeln skapas under `/run`; det tidigare teckenenhetstestet använde `/dev`
+som källa och täckte därför inte denna skillnad.
+
+Kör följande diagnostik före ytterligare installation eller daemonstart:
+
+```sh
+sudo python3 tools/check_usb_sandbox.py
+```
+
+Den skapar tillfälliga privata speglar under både `/run` och `/dev` med
+samma rättigheter och mount-argument som tjänsten. Noderna är kopior av
+`/dev/null` (1:3), aldrig USB-enheter. Resultatet visar mount-flaggor,
+rättigheter och öppningsfel inifrån sandboxen. Tillfälliga filer tas bort
+vid normal avslutning och hanterade fel. Ingen tjänst startas om.
+Agenten kan inte köra detta root-test utan användarens sudo-session.
+Byte av spegelplats är ännu inte genomfört eller verifierat på hårdvaran.
+
 ## Diagnostik efter första timeouten
 
 Första försöket gav `ERROR: Capture timed out`. Den då installerade versionen
