@@ -1,5 +1,7 @@
 # EutherFPScan
 
+[Handoff inför nästa arbetspass och inloggningsprov](HANDOFF.md).
+
 Projekt för att få fingeravtrycksläsaren i en HP ProBook 4340s att fungera
 på Debian 13. Riktig bildinsamling, registrering, rätt/fel finger och
 sudo-autentisering är nu bekräftade på utvecklingsdatorn.
@@ -15,6 +17,20 @@ python3 tools/install_gui.py
 
 Kör utan sudo och öppna **System Regis IV** i startmenyn.
 Se [användning, behörigheter och tester](docs/regis.md).
+
+## Inloggningsskärm för SDDM
+
+En första Regis-version med fingerknapp, lösenordsfält och PAM-status är
+byggd. Prova den med simulerade resultat utan att logga ut:
+
+```sh
+python3 tools/preview_sddm.py
+```
+
+Se [förhandsvisning, integrationsplan och tester](docs/sddm.md).
+Temat och PAM är installerade och konfigurationen är kontrollerad.
+Starta om datorn när arbetet är sparat för att ladda temavalet; ett riktigt
+inloggningsprov återstår.
 
 ## Bakgrund och installation
 

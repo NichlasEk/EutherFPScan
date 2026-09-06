@@ -1,0 +1,11 @@
+[SddmGreeterTheme]
+Name=System Regis IV
+Description=Regis inloggning med stöd för PAM-meddelanden
+Author=EutherFPScan
+Type=sddm-theme
+Version=0.1
+MainScript=Main.qml
+ConfigFile=theme.conf
+Theme-Id=regis
+Theme-API=2.0
+QtVersion=6
